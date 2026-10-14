@@ -1,0 +1,173 @@
+:root {
+  --bg: #15171c;
+  --panel: #1c1f26;
+  --node: #1a1d23;
+  --border: #2c313b;
+  --border-strong: #4b5566;
+  --text: #d6d9e0;
+  --muted: #7d8594;
+  --accent: #7aa2f7;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--text); font: 13px/1.45 'Segoe UI', system-ui, sans-serif; overflow: hidden; }
+button { font: inherit; color: var(--text); background: #262a33; border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--border-strong); background: #2d323c; }
+button:disabled { opacity: 0.4; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #11131a; font-weight: 600; }
+input { font: inherit; color: var(--text); background: #111318; border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; outline: none; }
+input:focus { border-color: var(--accent); }
+.fw-muted { color: var(--muted); }
+
+.fw-app { display: flex; height: 100%; }
+.fw-sidebar { width: 200px; flex-shrink: 0; background: var(--panel); border-right: 1px solid var(--border); padding: 10px 8px; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
+.fw-sidebar-head { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding: 4px 8px 8px; }
+.fw-ws { text-align: left; background: transparent; border-color: transparent; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fw-ws.active { background: #2a2f3a; border-color: var(--border); }
+.fw-ws-add { color: var(--muted); margin-top: 6px; }
+.fw-ws-input { margin: 1px 0; }
+.fw-main { flex: 1; position: relative; min-width: 0; }
+
+.fw-canvas { position: absolute; inset: 0; }
+.fw-toolbar { position: absolute; top: 10px; left: 10px; right: 10px; z-index: 5; display: flex; gap: 6px; align-items: center; pointer-events: none; }
+.fw-toolbar > * { pointer-events: auto; }
+.fw-hint { margin-left: 8px; font-size: 12px; }
+
+.react-flow { --xy-background-color: var(--bg); }
+.react-flow__node { padding: 0; border: none; background: none; }
+.fw-node { width: 100%; height: 100%; display: flex; flex-direction: column; background: var(--node); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35); overflow: hidden; }
+.fw-node.selected { border-color: var(--accent); }
+.fw-node-header { display: flex; align-items: center; gap: 8px; height: 32px; flex-shrink: 0; padding: 0 6px 0 10px; background: #20242c; border-bottom: 1px solid var(--border); cursor: grab; user-select: none; }
+.fw-node-icon { color: var(--accent); font-size: 12px; }
+.fw-node-title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+.fw-node-actions { display: flex; gap: 4px; align-items: center; }
+.fw-node-actions button { padding: 0 7px; height: 22px; font-size: 12px; background: transparent; border-color: transparent; }
+.fw-node-actions button:hover:not(:disabled) { border-color: var(--border); }
+.fw-node-body { flex: 1; min-height: 0; position: relative; cursor: auto; }
+.fw-resize-handle { width: 9px !important; height: 9px !important; border-radius: 2px; background: var(--accent) !important; border: none !important; }
+.fw-resize-line { border-color: transparent !important; }
+
+.fw-terminal { position: absolute; inset: 6px 4px 4px 8px; }
+.fw-terminal .xterm { height: 100%; }
+.fw-node:has(.fw-terminal) .fw-node-body { background: #0f1115; }
+
+.fw-fill { height: 100%; }
+.fw-editor { height: 100%; }
+.fw-editor .cm-editor { height: 100%; }
+.fw-editor .cm-editor.cm-focused { outline: none; }
+.fw-pad { padding: 10px; }
+.fw-error { padding: 10px; color: #f7768e; }
+
+.fw-markdown { height: 100%; overflow: auto; padding: 4px 16px 12px; user-select: text; }
+.fw-markdown pre { background: #111318; padding: 8px 10px; border-radius: 6px; overflow-x: auto; }
+.fw-markdown code { font-family: 'Cascadia Mono', Consolas, monospace; font-size: 12px; }
+.fw-markdown a { color: var(--accent); }
+.fw-markdown h1, .fw-markdown h2, .fw-markdown h3 { margin: 12px 0 6px; line-height: 1.25; }
+
+.fw-image { width: 100%; height: 100%; object-fit: contain; display: block; background: #0f1115; }
+
+.fw-title-input { flex: 1; min-width: 0; padding: 1px 6px; font-weight: 500; }
+.fw-todo { height: 100%; overflow: auto; padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; }
+.fw-todo label { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+.fw-todo label span { flex: 1; }
+.fw-todo label.done span { text-decoration: line-through; color: var(--muted); }
+.fw-todo label button { padding: 0 6px; background: transparent; border-color: transparent; color: var(--muted); visibility: hidden; }
+.fw-todo label:hover button { visibility: visible; }
+.fw-todo-new { margin-top: 6px; background: transparent; }
+
+.fw-modal-backdrop { position: absolute; inset: 0; z-index: 20; background: rgba(0, 0, 0, 0.45); display: grid; place-items: center; }
+.fw-modal { width: 440px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+.fw-modal h3 { margin: 0 0 2px; font-size: 15px; }
+.fw-modal label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.fw-row { display: flex; gap: 6px; }
+.fw-row input { flex: 1; }
+.fw-end { justify-content: flex-end; margin-top: 4px; }
+
+.react-flow__controls button { background: var(--panel); border-color: var(--border); fill: var(--text); }
+.react-flow__minimap { background: var(--panel); }
+
+/* workspaces: stand-by vs open */
+.fw-ws { display: flex; align-items: center; gap: 8px; }
+.fw-ws-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; border: 1px solid var(--muted); }
+.fw-ws-dot.on { background: #9ece6a; border-color: #9ece6a; }
+.fw-sidebar-foot { margin-top: auto; padding-top: 8px; border-top: 1px solid var(--border); }
+.fw-canvas-slot { position: absolute; inset: 0; }
+/* visibility (not display:none) keeps hidden canvases laid out, so terminals don't refit to 0 */
+/* `*` and !important: React Flow sets an inline `visibility: visible` on every node, which
+   would otherwise show through from a hidden workspace. */
+.fw-hidden, .fw-hidden * { visibility: hidden !important; pointer-events: none !important; }
+.fw-empty { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; gap: 6px; font-size: 14px; }
+
+/* zoom indicator */
+.fw-zoom { margin-left: auto; display: flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: #262a33; }
+.fw-zoom button { border: none; border-radius: 0; padding: 4px 9px; background: transparent; }
+.fw-zoom-value { min-width: 56px; font-variant-numeric: tabular-nums; border-left: 1px solid var(--border) !important; border-right: 1px solid var(--border) !important; }
+
+/* context menu */
+.fw-menu { position: fixed; z-index: 50; min-width: 200px; padding: 4px; background: var(--panel); border: 1px solid var(--border-strong); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45); display: flex; flex-direction: column; }
+.fw-menu button { text-align: left; background: transparent; border-color: transparent; padding: 5px 10px; white-space: nowrap; }
+.fw-menu button:hover:not(:disabled) { background: #2d323c; border-color: transparent; }
+.fw-menu button.danger { color: #f7768e; }
+.fw-menu-sep { height: 1px; background: var(--border); margin: 4px 2px; }
+
+/* rename */
+.fw-title-input[aria-invalid='true'] { border-color: #f7768e; }
+.fw-node-error { padding: 4px 10px; font-size: 12px; color: #f7768e; background: #2a1d22; border-bottom: 1px solid var(--border); }
+
+/* settings */
+.fw-help { font-size: 11px; }
+.fw-modal label.fw-check { flex-direction: row; align-items: center; gap: 8px; color: var(--text); font-size: 13px; }
+
+/* agent status */
+.fw-status { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: #9ece6a; }
+.fw-status.working { background: #e0af68; animation: fw-pulse 1.2s ease-in-out infinite; }
+@keyframes fw-pulse { 50% { opacity: 0.35; } }
+
+/* dialogs */
+select { font: inherit; color: var(--text); background: #111318; border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; outline: none; }
+.fw-help code { font-family: 'Cascadia Mono', Consolas, monospace; }
+.fw-modal-error { padding: 8px 10px; background: #2a1d22; border-radius: 6px; font-size: 12px; white-space: pre-wrap; }
+
+/* session connections */
+.react-flow .fw-handle { width: 11px; height: 11px; background: var(--node); border: 2px solid var(--accent); opacity: 0.55; z-index: 3; }
+.react-flow .fw-handle:hover, .react-flow .fw-handle.connectingto { opacity: 1; background: var(--accent); }
+.react-flow__edge-path { stroke: var(--accent); stroke-width: 2; }
+.react-flow__edge.selected .react-flow__edge-path { stroke: #c0caf5; }
+.react-flow__edge.animated .react-flow__edge-path { stroke: #e0af68; }
+
+textarea { font: inherit; color: var(--text); background: #111318; border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; outline: none; resize: vertical; }
+textarea:focus { border-color: var(--accent); }
+.fw-modal { max-height: 90vh; overflow-y: auto; }
+button.fw-link { background: none; border: none; padding: 0; color: var(--accent); cursor: pointer; }
+
+/* explorer node */
+.fw-explorer { height: 100%; display: flex; flex-direction: column; }
+.fw-explorer-filter { margin: 6px; flex-shrink: 0; }
+.fw-tree { flex: 1; overflow: auto; padding-bottom: 6px; font-size: 12.5px; user-select: none; }
+.fw-tree-row { display: flex; align-items: center; gap: 4px; padding: 2px 8px; white-space: nowrap; cursor: pointer; }
+.fw-tree-row:hover { background: #262a33; }
+.fw-tree-row.dir { color: #c0caf5; }
+.fw-tree-caret { width: 10px; flex-shrink: 0; color: var(--muted); font-size: 10px; }
+.fw-tree-note { padding: 2px 8px; color: var(--muted); font-size: 12px; }
+
+/* trash */
+.fw-trash-head { color: var(--muted); }
+.fw-trash-item { display: flex; align-items: center; gap: 4px; padding: 2px 4px 2px 10px; color: var(--muted); font-size: 12px; }
+.fw-trash-item span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fw-trash-item button { padding: 0 6px; background: transparent; border-color: transparent; color: var(--muted); }
+.fw-trash-item button:hover { color: var(--text); }
+button.danger { background: #3a1f27; border-color: #f7768e; color: #f7768e; }
+.fw-modal-text { line-height: 1.5; margin: 0; }
+
+/* toolbar: buttons never wrap; the hint gives way first */
+.fw-toolbar > button { white-space: nowrap; flex-shrink: 0; }
+.fw-toolbar .fw-hint { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fw-toolbar .fw-zoom { flex-shrink: 0; }
+
+/* composer under a terminal/session */
+.fw-composer { position: absolute; top: calc(100% + 6px); left: 0; right: 0; display: flex; gap: 6px; align-items: flex-end; padding: 6px; background: var(--panel); border: 1px solid var(--border-strong); border-radius: 8px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35); cursor: auto; }
+.fw-composer:focus-within { border-color: var(--accent); }
+.fw-composer textarea { flex: 1; resize: none; max-height: 200px; overflow-y: auto; font-family: 'Cascadia Mono', Consolas, monospace; font-size: 13px; line-height: 1.4; background: #111318; }
+.fw-composer button { height: 30px; flex-shrink: 0; }
