@@ -225,14 +225,39 @@ ipcMain.handle('git:info', async (_e, cwd: string) => {
   }
 })
 
-/** Creates `<repo>.worktrees/<branch>` next to the main checkout and returns its path. */
-ipcMain.handle('git:addWorktree', async (_e, repoDir: string, branch: string) => {
+/** Local and remote branches, most recently committed first, plus the one checked out. */
+ipcMain.handle('git:branches', async (_e, repoDir: string, fetch: boolean) => {
+  try {
+    if (fetch) await git(repoDir, 'fetch', '--all', '--prune')
+    const current = await git(repoDir, 'rev-parse', '--abbrev-ref', 'HEAD')
+    const refs = await git(repoDir, 'for-each-ref', '--sort=-committerdate', '--count=40', '--format=%(refname)', 'refs/heads', 'refs/remotes')
+    const branches = refs
+      .split(/\r?\n/)
+      .filter((r) => r && !/^refs\/remotes\/[^/]+\/HEAD$/.test(r)) // `origin/HEAD` is an alias, not a branch
+      .map((r) => r.replace(/^refs\/(heads|remotes)\//, ''))
+    return { current: current === 'HEAD' ? '' : current, branches }
+  } catch (e) {
+    throw new Error(gitError(e))
+  }
+})
+
+/**
+ * Creates `<repo>.worktrees/<branch>` next to the main checkout and returns its path. A new
+ * branch starts at `base` (any branch, tag or commit) or, without it, at the repo's HEAD; an
+ * existing branch is checked out as it is and `base` is ignored.
+ */
+ipcMain.handle('git:addWorktree', async (_e, repoDir: string, branch: string, base?: string) => {
   try {
     await git(repoDir, 'check-ref-format', '--branch', branch)
+    // A leading dash would be read as an option by the git commands below.
+    if (base?.startsWith('-')) throw new Error(`Origem inválida: ${base}`)
+    if (base) await git(repoDir, 'rev-parse', '--verify', '--quiet', `${base}^{commit}`).catch(() => {
+      throw new Error(`Origem não encontrada: ${base}`)
+    })
     const mainRoot = path.dirname(await git(repoDir, 'rev-parse', '--path-format=absolute', '--git-common-dir'))
     const target = path.join(`${mainRoot}.worktrees`, branch.replace(/[\\/]/g, '-'))
     const exists = await git(repoDir, 'show-ref', '--verify', '--quiet', `refs/heads/${branch}`).then(() => true, () => false)
-    await git(repoDir, 'worktree', 'add', ...(exists ? [target, branch] : ['-b', branch, target]))
+    await git(repoDir, 'worktree', 'add', ...(exists ? [target, branch] : ['-b', branch, target, ...(base ? [base] : [])]))
     return target
   } catch (e) {
     throw new Error(gitError(e))

@@ -18,12 +18,36 @@ export function TerminalDialog({ kind, defaultCwd, onCancel, onCreate }: Props) 
   const [resumeCommand, setResumeCommand] = useState('')
   const [worktree, setWorktree] = useState(false)
   const [branch, setBranch] = useState('')
+  const [base, setBase] = useState('')
+  const [branches, setBranches] = useState<string[]>([])
+  const [loadingBranches, setLoadingBranches] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     window.api.homedir().then((h) => setCwd((c) => c || h))
   }, [])
+
+  // Branches of the chosen repo, for the "start from" field; the current one is the default.
+  const loadBranches = async (fetch = false) => {
+    setLoadingBranches(true)
+    try {
+      const r = await window.api.git.branches(cwd, fetch)
+      setBranches(r.branches)
+      setBase((b) => b || r.current)
+      setError('')
+    } catch (err) {
+      setBranches([])
+      if (fetch) setError((err as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
+    } finally {
+      setLoadingBranches(false)
+    }
+  }
+  useEffect(() => {
+    if (!worktree || !cwd) return
+    const t = setTimeout(() => loadBranches(), 300) // the folder may still be being typed
+    return () => clearTimeout(t)
+  }, [worktree, cwd])
 
   const pickProvider = (p: 'claude' | 'custom') => {
     setProvider(p)
@@ -38,7 +62,7 @@ export function TerminalDialog({ kind, defaultCwd, onCancel, onCreate }: Props) 
     if (worktree) {
       setBusy(true)
       try {
-        dir = await window.api.git.addWorktree(cwd, branch.trim())
+        dir = await window.api.git.addWorktree(cwd, branch.trim(), base.trim() || undefined)
       } catch (err) {
         setError((err as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
         return
@@ -92,6 +116,26 @@ export function TerminalDialog({ kind, defaultCwd, onCancel, onCreate }: Props) 
             <span className="fw-help">
               Cria a pasta <code>&lt;repo&gt;.worktrees/&lt;branch&gt;</code> ao lado do repositório (a branch é criada se não
               existir). Remover a worktree depois é pelo terminal: <code>git worktree remove</code>.
+            </span>
+          </label>
+        )}
+        {worktree && (
+          <label>
+            A partir de
+            <span className="fw-row">
+              <input value={base} list="fw-branches" placeholder="branch atual do repositório" onChange={(e) => setBase(e.target.value)} />
+              <button type="button" title="Buscar branches do remoto (git fetch)" disabled={loadingBranches} onClick={() => loadBranches(true)}>
+                {loadingBranches ? '…' : '↻'}
+              </button>
+            </span>
+            <datalist id="fw-branches">
+              {branches.map((b) => (
+                <option key={b} value={b} />
+              ))}
+            </datalist>
+            <span className="fw-help">
+              Branch, tag ou commit de onde a branch nova parte (lista: as mais recentes, locais e remotas). Se a branch já
+              existir, ela é aberta como está e este campo é ignorado.
             </span>
           </label>
         )}

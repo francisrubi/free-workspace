@@ -3,6 +3,8 @@ import { terminals } from '../terminals'
 
 type Props = { nodeId: string; visible: boolean }
 
+const MAX_HEIGHT = 200
+
 /**
  * A text box under a terminal/session for writing prompts comfortably: Enter sends,
  * Shift+Enter breaks the line, ↑ on an empty box recalls what was sent. It sits outside the
@@ -16,12 +18,17 @@ export function Composer({ nodeId, visible }: Props) {
   const history = useRef<string[]>([])
   const recall = useRef(-1)
 
-  // Grow with the content, up to the CSS max-height (then it scrolls).
+  // Grow with the content up to MAX_HEIGHT, then scroll. scrollHeight leaves out the borders,
+  // which box-sizing: border-box counts in `height`: add them back, or an empty box already
+  // overflows by 2px and shows a scrollbar.
   useLayoutEffect(() => {
     const el = box.current
     if (!el) return
     el.style.height = 'auto'
-    el.style.height = `${el.scrollHeight}px`
+    const borders = el.offsetHeight - el.clientHeight
+    const wanted = el.scrollHeight + borders
+    el.style.height = `${Math.min(wanted, MAX_HEIGHT)}px`
+    el.style.overflowY = wanted > MAX_HEIGHT ? 'auto' : 'hidden'
   }, [text, visible, focused])
 
   if (!visible && !focused && !text) return null
@@ -45,7 +52,8 @@ export function Composer({ nodeId, visible }: Props) {
         ref={box}
         rows={1}
         value={text}
-        placeholder="Escreva aqui · Enter envia · Shift+Enter quebra linha · Esc volta ao terminal"
+        placeholder="Escreva aqui"
+        title="Enter envia · Shift+Enter quebra linha · ↑ recupera o último envio · Esc volta ao terminal"
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         onChange={(e) => {

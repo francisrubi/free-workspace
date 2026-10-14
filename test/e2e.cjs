@@ -44,6 +44,23 @@ module.exports = async (win) => {
     for (const end = Date.now() + ms; Date.now() < end; await sleep(200)) if (await js(code)) return true
     return false
   }
+  // Whole xterm buffer of a node: what the terminal received, independent of DOM painting.
+  const bufferText = (id) =>
+    js(`(() => { const t = window.__fwTerminals.get(${JSON.stringify(id)}); if (!t) return ''
+      const b = t.term.buffer.active; const out = []
+      for (let i = 0; i < b.length; i++) out.push(b.getLine(i).translateToString(true))
+      return out.join('\\n') })()`)
+  // Position of an element once it stops moving (e.g. after an animated fit view).
+  const stableRect = async (sel) => {
+    let prev = null
+    for (let i = 0; i < 20; i++) {
+      const r = await rect(sel)
+      if (prev && r && r.x === prev.x && r.y === prev.y && r.w === prev.w) return r
+      prev = r
+      await sleep(100)
+    }
+    return prev
+  }
   const rect = (sel) =>
     js(`(() => { const r = document.querySelector(${JSON.stringify(sel)})?.getBoundingClientRect(); return r && { x: r.x, y: r.y, w: r.width, h: r.height } })()`)
   const clickText = (sel, text) =>
@@ -90,6 +107,8 @@ module.exports = async (win) => {
   // 2a'. composer under the selected terminal: Shift+Enter breaks the line, Enter sends
   const comp = `${t2} .fw-composer textarea`
   check('caixa de texto aparece abaixo do terminal selecionado', await waitFor(`!!document.querySelector('${comp}')`, 2000))
+  const emptyBox = await js(`(() => { const el = document.querySelector('${comp}'); return { placeholder: el.placeholder, scrolls: el.scrollHeight > el.clientHeight || getComputedStyle(el).overflowY !== 'hidden' } })()`)
+  check('caixa vazia sem barra de rolagem e com placeholder curto', emptyBox.placeholder === 'Escreva aqui' && !emptyBox.scrolls, JSON.stringify(emptyBox))
   const cbox = await rect(comp)
   await click(cbox.x + 20, cbox.y + cbox.h / 2)
   await type('echo COMP_A')
@@ -172,8 +191,13 @@ module.exports = async (win) => {
   check('perguntar para sessão não conectada é recusado', denied.isError === true && denied.content[0].text.includes('não está conectado'))
 
   const answer = call(AI, 'ask_session', { session: 'Backend', message: 'PERGUNTA_E2E qual a rota?' })
-  const delivered = await waitFor(`[...document.querySelectorAll('.react-flow__node[data-id="${B}"] .xterm-rows > div')].some(r => r.textContent.includes('PERGUNTA_E2E'))`, 8000)
-  const token = ((await bRows()).match(/fw-msg [0-9a-f]{8}/) || [])[0]
+  let token
+  for (let i = 0; i < 40 && !token; i++) {
+    const buf = await bufferText(B)
+    if (buf.includes('PERGUNTA_E2E')) token = (buf.match(/fw-msg [0-9a-f]{8}/) || [])[0]
+    else await sleep(200)
+  }
+  const delivered = !!token
   check('ask_session digita a mensagem no terminal do destino', delivered && !!token, token)
   check('conexão fica animada enquanto espera a resposta', await waitFor(`!!document.querySelector('.react-flow__edge.animated')`, 3000))
   const SB = '66666666-6666-4666-8666-666666666666'
@@ -237,8 +261,15 @@ module.exports = async (win) => {
   await sleep(200)
   await js(`document.querySelector('.fw-modal input[placeholder^="ex.: feat"]').focus()`)
   await type('feat/e2e')
+  const branchesListed = await waitFor(`(() => { const o = [...document.querySelectorAll('#fw-branches option')].map(o => o.value); return o.includes('main') && o.includes('base-e2e') })()`, 5000)
+  const baseInput = '.fw-modal input[list="fw-branches"]'
+  check('origem da worktree lista as branches e vem com a atual', branchesListed && (await js(`document.querySelector('${baseInput}').value`)) === 'main')
+  await js(`document.querySelector('${baseInput}').focus()`)
+  await key('A', ['control'])
+  await type('base-e2e')
   await clickText('.fw-modal button', 'Criar')
   const wtNode = await waitFor(`[...document.querySelectorAll('.fw-node-title')].some(t => t.textContent.includes('⎇ feat/e2e (worktree)'))`, 10000)
+  check('worktree nova parte da origem escolhida', fs.existsSync(path.join(S, 'repo.worktrees', 'feat-e2e', 'base.txt')))
   check('terminal em worktree nova: pasta criada e branch no cabeçalho', wtNode && fs.existsSync(path.join(S, 'repo.worktrees', 'feat-e2e', 'README.md')),
     await js(`document.querySelector('.fw-modal-error')?.textContent || ''`))
 
@@ -279,10 +310,12 @@ module.exports = async (win) => {
   check('clicar no indicador volta para 100%', z100, await js(`document.querySelector('.fw-zoom-value').textContent`))
 
   // 6. context menu on node -> rename (fit view first so the nodes are on screen)
+  // Deselect first: the selected node's text box could cover a neighbour's header.
+  await key('Escape')
+  await js(`document.querySelector('.react-flow__pane').dispatchEvent(new MouseEvent('click', { bubbles: true }))`)
   await js(`document.querySelector('.react-flow__controls-fitview').click()`)
   await sleep(500)
-  const head = await rect('.react-flow__node-terminal .fw-node-title')
-  console.log('[test] terminal header rect', JSON.stringify(head))
+  const head = await stableRect('.react-flow__node-terminal .fw-node-title')
   await click(head.x + 20, head.y + head.h / 2, 'right')
   await sleep(200)
   check('menu de contexto do nó abre', await js(`[...document.querySelectorAll('.fw-menu button')].some(b => b.textContent === 'Reiniciar processo')`))

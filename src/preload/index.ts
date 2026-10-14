@@ -51,7 +51,10 @@ const api = {
   },
   git: {
     info: (cwd: string) => ipcRenderer.invoke('git:info', cwd) as Promise<{ branch: string; worktree: boolean } | null>,
-    addWorktree: (repoDir: string, branch: string) => ipcRenderer.invoke('git:addWorktree', repoDir, branch) as Promise<string>
+    branches: (repoDir: string, fetch = false) =>
+      ipcRenderer.invoke('git:branches', repoDir, fetch) as Promise<{ current: string; branches: string[] }>,
+    addWorktree: (repoDir: string, branch: string, base?: string) =>
+      ipcRenderer.invoke('git:addWorktree', repoDir, branch, base) as Promise<string>
   },
   /** Claude Code hook events for one node: which conversation is live, and whether it is busy. */
   onAgentEvent: (nodeId: string, cb: (e: { sessionId: string; event: string }) => void) => {

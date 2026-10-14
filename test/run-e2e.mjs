@@ -23,6 +23,12 @@ mkdirSync(path.join(repo, 'src'))
 writeFileSync(path.join(repo, 'src', 'a.ts'), 'export const a = 1\n')
 git('add', '.')
 git('-c', 'user.name=e2e', '-c', 'user.email=e2e@local', 'commit', '-m', 'init')
+// A second branch with its own file: a worktree started from it must contain base.txt.
+git('checkout', '-b', 'base-e2e')
+writeFileSync(path.join(repo, 'base.txt'), 'base\n')
+git('add', '.')
+git('-c', 'user.name=e2e', '-c', 'user.email=e2e@local', 'commit', '-m', 'base')
+git('checkout', 'main')
 
 // The "Claude" node runs `echo` instead of the real CLI: the test only needs to see which
 // arguments the app appends, and then plays the hooks itself.

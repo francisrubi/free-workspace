@@ -169,5 +169,5 @@ button.danger { background: #3a1f27; border-color: #f7768e; color: #f7768e; }
 /* composer under a terminal/session */
 .fw-composer { position: absolute; top: calc(100% + 6px); left: 0; right: 0; display: flex; gap: 6px; align-items: flex-end; padding: 6px; background: var(--panel); border: 1px solid var(--border-strong); border-radius: 8px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35); cursor: auto; }
 .fw-composer:focus-within { border-color: var(--accent); }
-.fw-composer textarea { flex: 1; resize: none; max-height: 200px; overflow-y: auto; font-family: 'Cascadia Mono', Consolas, monospace; font-size: 13px; line-height: 1.4; background: #111318; }
+.fw-composer textarea { flex: 1; resize: none; overflow-y: hidden; font-family: 'Cascadia Mono', Consolas, monospace; font-size: 13px; line-height: 1.4; background: #111318; }
 .fw-composer button { height: 30px; flex-shrink: 0; }
