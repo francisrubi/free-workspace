@@ -164,7 +164,7 @@ module.exports = async (win) => {
   check('MCP initialize devolve instruções com nome e papel da sessão',
     init.protocolVersion === '2025-06-18' && init.instructions.includes('Free Workspace') && init.instructions.includes('"Claude"') && init.instructions.includes('papel do front'))
   const tools = (await mcp(AI, 'tools/list')).result.tools.map((t) => t.name).join(',')
-  check('MCP lista as ferramentas', tools === 'list_sessions,ask_session,send_message', tools)
+  check('MCP lista as ferramentas', tools === 'list_sessions,ask_session,send_message,open_file,create_note,create_todo,open_terminal', tools)
   const listed = (await call(AI, 'list_sessions')).content[0].text
   check('list_sessions mostra só a sessão conectada, com o papel', listed.includes('"Backend"') && listed.includes('cuida da API') && !listed.includes('Revisor'), listed)
   check('sessão sem conexões não enxerga ninguém', (await call(C, 'list_sessions')).content[0].text.includes('Nenhuma sessão conectada'))
@@ -185,6 +185,22 @@ module.exports = async (win) => {
   const got = (await answer).content[0].text
   check('ask_session devolve o texto final do turno do destino', got === 'RESPOSTA_B: /api/v1', got)
   check('conexão para de animar depois da resposta', await waitFor(`!document.querySelector('.react-flow__edge.animated')`, 3000))
+
+  // 2b''. canvas tools: a session puts things on the canvas next to itself
+  const allow = JSON.parse(fs.readFileSync(path.join(hooksDir, AI + '.json'), 'utf8')).permissions.allow
+  check('open_terminal não vem pré-autorizado (Claude pede confirmação)', allow.includes('mcp__free-workspace__create_note') && !allow.some((t) => t.includes('open_terminal')), allow.join(','))
+  const nodeCount = (type) => js(`document.querySelectorAll('.react-flow__node-${type}').length`)
+  const notesBefore = await nodeCount('note')
+  await call(AI, 'create_note', { text: '# Plano E2E\n\n- passo 1' })
+  check('create_note cria a nota no canvas', await waitFor(`[...document.querySelectorAll('.react-flow__node-note')].some(n => n.textContent.includes('Plano E2E'))`, 3000) && (await nodeCount('note')) === notesBefore + 1)
+  await call(AI, 'create_todo', { title: 'Tarefas E2E', items: ['revisar', 'testar'] })
+  check('create_todo cria a lista com os itens', await waitFor(`[...document.querySelectorAll('.react-flow__node-todo')].some(n => n.textContent.includes('Tarefas E2E') && n.textContent.includes('revisar') && n.textContent.includes('testar'))`, 3000))
+  const missing404 = await call(AI, 'open_file', { path: 'nao-existe.txt' })
+  check('open_file de arquivo inexistente devolve erro', missing404.isError === true && missing404.content[0].text.includes('não encontrado'))
+  await call(AI, 'open_file', { path: 'README.md' })
+  check('open_file abre arquivo relativo ao diretório da sessão', await waitFor(`[...document.querySelectorAll('.react-flow__node-file .fw-node-title')].some(t => t.textContent.startsWith('README.md'))`, 3000))
+  await call(AI, 'open_terminal', { title: 'Dev E2E', command: 'echo TOOL_TERM' })
+  check('open_terminal abre um terminal rodando o comando', await waitFor(`[...document.querySelectorAll('.react-flow__node-terminal')].some(n => n.textContent.includes('Dev E2E') && [...n.querySelectorAll('.xterm-rows > div')].some(r => r.textContent.trim() === 'TOOL_TERM'))`, 10000))
 
   // connect A -> C by dragging between their dots
   const dot = (id, side) => rect(`.react-flow__node[data-id="${id}"] .fw-handle[data-handleid="${side}"]`)

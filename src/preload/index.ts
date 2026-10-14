@@ -3,6 +3,12 @@ import os from 'node:os'
 
 import type { Settings } from '../shared/settings'
 
+type CanvasItem =
+  | { type: 'file'; path: string }
+  | { type: 'note'; text: string; title?: string }
+  | { type: 'todo'; title: string; items: string[] }
+  | { type: 'terminal'; title: string; cwd?: string; command?: string }
+
 const api = {
   /** Running under test/e2e.cjs: exposes internals the test inspects. */
   isTest: !!process.env.FW_TEST,
@@ -63,6 +69,12 @@ const api = {
       ipcRenderer.on('agent:activity', l)
       return () => void ipcRenderer.removeListener('agent:activity', l)
     }
+  },
+  /** A session asked (MCP canvas tools) to show something on this workspace's canvas. */
+  onCanvasOpen: (workspaceId: string, cb: (req: { from: string; item: CanvasItem }) => void) => {
+    const l = (_: unknown, req: { from: string; item: CanvasItem }) => cb(req)
+    ipcRenderer.on(`canvas:open:${workspaceId}`, l)
+    return () => void ipcRenderer.removeListener(`canvas:open:${workspaceId}`, l)
   },
   homedir: () => ipcRenderer.invoke('app:homedir') as Promise<string>,
   pty: {

@@ -109,8 +109,10 @@ export async function claudeArgs(nodeId: string, sessionId?: string): Promise<st
   }
   let args = ` --settings ${await file(`${nodeId}.json`, {
     hooks: { UserPromptSubmit: hook, Stop: hook },
-    // The user wired the sessions together on the canvas; don't ask again on every message.
-    ...(mcp ? { permissions: { allow: [`mcp__${SERVER_NAME}`] } } : {})
+    // The user wired the sessions together and the canvas is theirs to look at: no prompt for
+    // these. open_terminal is left out on purpose — it runs a command, so Claude Code asks
+    // first, as it would for its own Bash tool.
+    ...(mcp ? { permissions: { allow: PRE_ALLOWED.map((t) => `mcp__${SERVER_NAME}__${t}`) } } : {})
   })}`
   if (mcp) {
     args += ` --mcp-config ${await file(`${nodeId}.mcp.json`, {
@@ -239,6 +241,92 @@ const TOOLS = [
   }
 ]
 
+// ---------- canvas tools ----------
+// Let a session put things in front of the user, next to itself on the canvas. The renderer
+// that owns the session's workspace does the placing (see Canvas.tsx, `canvas:open`).
+
+const CANVAS_TOOLS = [
+  {
+    name: 'open_file',
+    description:
+      'Abre um arquivo no canvas do usuário, ao lado desta sessão (se já estiver aberto, foca nele). Use para mostrar um arquivo que vale o usuário ler ou revisar. Imagens viram print.',
+    inputSchema: {
+      type: 'object',
+      properties: { path: { type: 'string', description: 'Caminho absoluto ou relativo ao diretório desta sessão.' } },
+      required: ['path']
+    }
+  },
+  {
+    name: 'create_note',
+    description: 'Cria uma nota em Markdown no canvas, ao lado desta sessão. Use para resumos, planos ou decisões que o usuário deve manter à vista.',
+    inputSchema: {
+      type: 'object',
+      properties: { text: { type: 'string', description: 'Conteúdo em Markdown.' }, title: { type: 'string', description: 'Opcional; sem ele, o título é a 1ª linha.' } },
+      required: ['text']
+    }
+  },
+  {
+    name: 'create_todo',
+    description: 'Cria uma lista de tarefas (ToDo) no canvas, ao lado desta sessão, para o usuário acompanhar e marcar.',
+    inputSchema: {
+      type: 'object',
+      properties: { title: { type: 'string' }, items: { type: 'array', items: { type: 'string' }, description: 'Uma tarefa por item.' } },
+      required: ['title', 'items']
+    }
+  },
+  {
+    name: 'open_terminal',
+    description:
+      'Abre um terminal no canvas, ao lado desta sessão, opcionalmente já rodando um comando (ex.: servidor de dev, logs, ngrok) que o usuário vai querer ver. O usuário confirma antes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        cwd: { type: 'string', description: 'Diretório; padrão: o desta sessão.' },
+        command: { type: 'string', description: 'Comando a rodar ao abrir (opcional).' }
+      },
+      required: ['title']
+    }
+  }
+]
+const PRE_ALLOWED = ['list_sessions', 'ask_session', 'send_message', 'open_file', 'create_note', 'create_todo']
+const CANVAS_TOOL_NAMES = new Set(CANVAS_TOOLS.map((t) => t.name))
+
+type CanvasItem =
+  | { type: 'file'; path: string }
+  | { type: 'note'; text: string; title?: string }
+  | { type: 'todo'; title: string; items: string[] }
+  | { type: 'terminal'; title: string; cwd?: string; command?: string }
+
+/** Validates a canvas tool call and hands it to the renderer; returns the tool's text reply. */
+async function canvasTool(nodeId: string, tool: string, a: Record<string, unknown>): Promise<[string, boolean]> {
+  const me = agents.get(nodeId)
+  if (!me) return ['Esta sessão não está num canvas aberto.', true]
+  const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
+  const within = (p: string) => path.resolve(me.cwd ?? '', p)
+  let item: CanvasItem
+  if (tool === 'open_file') {
+    const file = within(str(a.path))
+    const st = await fs.stat(file).catch(() => null)
+    if (!st?.isFile()) return [`Arquivo não encontrado: ${file}`, true]
+    item = { type: 'file', path: file }
+  } else if (tool === 'create_note') {
+    if (!str(a.text)) return ['Nota vazia.', true]
+    item = { type: 'note', text: str(a.text), title: str(a.title) || undefined }
+  } else if (tool === 'create_todo') {
+    const items = Array.isArray(a.items) ? a.items.map(str).filter(Boolean) : []
+    if (!items.length) return ['Informe ao menos uma tarefa.', true]
+    item = { type: 'todo', title: str(a.title) || 'ToDo', items }
+  } else {
+    const cwd = within(str(a.cwd))
+    const st = await fs.stat(cwd).catch(() => null)
+    if (!st?.isDirectory()) return [`Diretório não encontrado: ${cwd}`, true]
+    item = { type: 'terminal', title: str(a.title) || 'Terminal', cwd, command: str(a.command) || undefined }
+  }
+  host.send(`canvas:open:${me.workspaceId}`, { from: nodeId, item })
+  return ['Pronto: aberto no canvas, ao lado desta sessão.', false]
+}
+
 function instructions(nodeId: string): string {
   const me = agents.get(nodeId)
   const base = host.settings().agentInstructions.trim() || DEFAULT_AGENT_INSTRUCTIONS
@@ -267,11 +355,15 @@ function onMcp(nodeId: string, msg: Record<string, unknown>, res: http.ServerRes
     })
   }
   if (method === 'ping') return void json({ result: {} })
-  if (method === 'tools/list') return void json({ result: { tools: TOOLS } })
+  if (method === 'tools/list') return void json({ result: { tools: [...TOOLS, ...CANVAS_TOOLS] } })
   if (method !== 'tools/call') return void json({ error: { code: -32601, message: `Method not found: ${method}` } })
 
   const args = (params.arguments ?? {}) as { session?: string; message?: string }
   if (params.name === 'list_sessions') return void json(text(listSessions(nodeId)))
+  if (CANVAS_TOOL_NAMES.has(String(params.name))) {
+    canvasTool(nodeId, String(params.name), args).then(([t, isError]) => json(text(t, isError)))
+    return
+  }
   if (params.name !== 'ask_session' && params.name !== 'send_message')
     return void json({ error: { code: -32602, message: `Unknown tool: ${params.name}` } })
 

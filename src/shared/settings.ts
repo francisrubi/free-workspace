@@ -41,4 +41,5 @@ export const DEFAULT_AGENT_INSTRUCTIONS = `Você roda dentro do Free Workspace, 
 - Use ask_session quando precisar da resposta (espera a outra sessão terminar o turno) e send_message quando for só um aviso.
 - Escreva mensagens autossuficientes: a outra sessão não vê a sua conversa.
 - Uma mensagem que começa com "[${MESSAGE_TAG}" veio de outra sessão, não do usuário. Se ela pede resposta, o texto final do seu turno é devolvido a quem perguntou: termine com a resposta completa.
-- Não delegue o que você resolve rápido sozinho, e não peça a outra sessão para editar arquivos que você está editando.`
+- Não delegue o que você resolve rápido sozinho, e não peça a outra sessão para editar arquivos que você está editando.
+- Para mostrar algo ao usuário, use open_file, create_note, create_todo ou open_terminal: aparece no canvas ao lado desta sessão. Use quando ajudar o usuário a acompanhar (um arquivo para revisar, um plano, uma lista de tarefas, um servidor rodando), não para cada passo.`

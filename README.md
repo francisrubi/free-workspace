@@ -51,6 +51,10 @@ testes e2e contra o app empacotado.
   app; a linha fica animada enquanto uma espera a outra. Clique direito → *Papel da sessão…*
   descreve o que cada uma faz, e o texto geral de instruções é editável nas Configurações.
   Mudanças de papel/instruções valem para sessões iniciadas ou reiniciadas depois.
+- **Sessão mostrando coisas no canvas**: as sessões Claude também têm `open_file`,
+  `create_note`, `create_todo` e `open_terminal`, que abrem o item ao lado da própria sessão.
+  As três primeiras rodam direto; `open_terminal` executa um comando, então o Claude Code pede
+  sua confirmação antes, como faria com o próprio Bash.
 - **Worktree**: marque "Abrir numa worktree git nova" ao criar um terminal/sessão para criar
   `<repo>.worktrees/<branch>` e já abrir lá. Remover worktrees é pelo terminal.
 - **Ctrl+C** no terminal copia quando há seleção (senão interrompe o processo); **Ctrl+V** cola.
@@ -88,7 +92,7 @@ Abre o app de verdade num workspace temporário e o controla com eventos reais d
 teclado (`test/e2e.cjs`): stand-by, zoom, seleção + Ctrl+C com zoom em 50%, colar, menus,
 renomear, arrastar com o botão direito, configurações, retomada de sessão e conversa entre sessões via MCP (hooks simulados),
 branch no cabeçalho, criação de worktree, troca de workspace, terminal crescendo sem
-duplicar linhas, explorador, lixeira e caixa de texto. `FW_E2E_REAL=1 npm run test:e2e` inclui um passo com o
+duplicar linhas, explorador, lixeira, caixa de texto e as ferramentas que abrem itens no canvas. `FW_E2E_REAL=1 npm run test:e2e` inclui um passo com o
 Claude Code real como cliente MCP (gasta alguns tokens).
 
 ## Stack

@@ -214,6 +214,30 @@ export function Canvas({ workspace, active }: { workspace: Workspace; active: bo
     else add({ type: 'file', data: { path }, width: w, height: h, position: at })
   }
 
+  // Sessions put things here through the MCP canvas tools. Each new item goes to the right of
+  // the session that asked, cascading down so consecutive ones don't stack on top of each other.
+  const cascade = useRef(new Map<string, number>())
+  useEffect(
+    () =>
+      window.api.onCanvasOpen(workspaceId, ({ from, item }) => {
+        if (item.type === 'file') return void openPath(item.path, from)
+        const src = getNodes().find((n) => n.id === from)
+        const n = cascade.current.get(from) ?? 0
+        cascade.current.set(from, n + 1)
+        const w = item.type === 'terminal' ? 640 : item.type === 'note' ? 380 : 300
+        const h = item.type === 'terminal' ? 380 : 300
+        const at = src
+          ? { x: src.position.x + (src.width ?? src.measured?.width ?? 400) + 40 + w / 2 + (n % 5) * 30, y: src.position.y + h / 2 + (n % 5) * 40 }
+          : undefined
+        if (item.type === 'note') add({ type: 'note', data: { text: item.text, title: item.title }, width: w, height: h, position: at })
+        else if (item.type === 'todo')
+          add({ type: 'todo', data: { title: item.title, items: item.items.map((text) => ({ id: uid(), text, done: false })) }, width: w, height: h, position: at })
+        else add({ type: 'terminal', data: { kind: 'shell', title: item.title, cwd: item.cwd, command: item.command }, width: w, height: h, position: at })
+      }),
+    // openPath/add only use stable setters and getNodes().
+    [workspaceId]
+  )
+
   const creators = (at?: Point): MenuItem[] => [
     { label: '›_  Terminal', onClick: () => setDialog({ kind: 'shell', at }) },
     { label: '✦  Sessão IA', onClick: () => setDialog({ kind: 'ai', at }) },
