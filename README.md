@@ -1,110 +1,99 @@
 # Free Workspace
 
-Canvas infinito para desenvolvimento: terminais, sessões de IA, arquivos de código, notas em
-Markdown, ToDos e screenshots como elementos livres num mural, um mural por projeto.
+An infinite canvas for development work. Terminals, AI coding sessions, code files, Markdown
+notes, to-do lists and screenshots live side by side on one board per project, so the context
+of a task stays in one place instead of spread across a terminal app, an editor, a notes app
+and a screenshot tool.
 
-## Rodar
+<!-- IMAGE: hero screenshot. A real workspace with 2–3 terminals/AI sessions, a file open in
+     the editor, a note and a pasted screenshot, sidebar visible with a colored group.
+     Suggested path: docs/images/overview.png -->
 
-Precisa de Node.js 20+ e git. Não precisa de compilador C++: o node-pty vem com binários
-prontos para Windows, macOS e Linux (x64 e arm64).
+> The interface is currently in Portuguese (pt-BR).
+
+## Features
+
+- **Canvas with everything in it** — real terminals, AI sessions, a code/Markdown editor with
+  syntax highlighting, notes, to-do lists, a folder explorer, and screenshots pasted with
+  Ctrl+V. Drag, resize, color and connect them freely.
+- **AI sessions that pick up where they left off** — Claude Code sessions reopen the exact
+  conversation they had, even with several sessions in the same folder, and show whether
+  they're working or idle.
+- **Sessions that talk to each other** — connect two sessions on the canvas and they can ask
+  each other questions through a built-in MCP server (see below).
+- **Git-aware** — each terminal shows its branch and whether it's a worktree; new terminals
+  and sessions can start in a fresh worktree from any branch.
+- **Workspaces** — one canvas per project, organized in colored, collapsible groups. They
+  stay on stand-by until opened, and deleted ones go to a trash with scheduled removal.
+- **Comfortable prompting** — a text box under the selected terminal for writing multi-line
+  prompts (Shift+Enter for a new line).
+
+<!-- IMAGE: two connected AI sessions, the link between them animated while one waits for
+     the other's answer. Suggested path: docs/images/sessions.png -->
+
+## MCP tools for AI sessions
+
+Every Claude Code session started from the app is connected to an MCP server that runs inside
+the app (localhost only, nothing to install). It gives the session these tools:
+
+| Tool | What it does |
+| --- | --- |
+| `list_sessions` | Lists the sessions connected to this one on the canvas, with their role, status and folder. |
+| `ask_session` | Sends a message to a connected session and waits for its answer. |
+| `send_message` | Sends a message to a connected session without waiting. |
+| `open_file` | Opens a file on the canvas, next to the session. |
+| `create_note` | Creates a Markdown note on the canvas. |
+| `create_todo` | Creates a to-do list on the canvas. |
+| `open_terminal` | Opens a terminal on the canvas, optionally running a command. Asks for your confirmation first. |
+
+Sessions only see the sessions you've connected to them by dragging a link between them. Each
+session can have a role describing what it's for, and the instructions sent to all sessions
+are editable in Settings.
+
+<!-- IMAGE: a session that used create_note / create_todo, with the note and the list it
+     created next to it. Suggested path: docs/images/canvas-tools.png -->
+
+## Getting started
+
+Requires Node.js 20+ and git. No C++ toolchain needed: node-pty ships prebuilt binaries for
+Windows, macOS and Linux (x64 and arm64).
 
 ```bash
 npm install
 npm run dev
 ```
 
-## Gerar o executável
+## Building the app
 
 ```bash
 npm run dist
 ```
 
-Gera em `dist/` os formatos do sistema em que você rodou o comando (cada sistema empacota o
-próprio; não dá para gerar o de macOS a partir do Windows):
+Builds the installers for the OS you run it on into `dist/`: an installer and a portable
+`.exe` on Windows, a `.dmg` on macOS, an `.AppImage` and a `.deb` on Linux. The app isn't
+code-signed, so Windows SmartScreen and macOS Gatekeeper warn on first launch.
 
-- **Windows**: `Free Workspace Setup <versão>.exe` (instalador, deixa escolher a pasta) e
-  `Free Workspace-<versão>-portable.exe` (roda sem instalar).
-- **macOS**: `.dmg`. **Linux**: `.AppImage` e `.deb`.
+Data is stored in `~/.free-workspace/`.
 
-`npm run dist:dir` só monta a pasta descompactada (`dist/win-unpacked/`), mais rápido para
-testar. O app não é assinado: no Windows o SmartScreen avisa na primeira execução (*Mais
-informações → Executar assim mesmo*); no macOS, clique direito → *Abrir*.
-
-Para validar um build: `FW_E2E_EXE="<caminho do .exe>" node test/run-e2e.mjs` roda os
-testes e2e contra o app empacotado.
-
-## Como usar
-
-- Os workspaces abrem em **stand-by**: nada carrega (nenhum terminal sobe) até você clicar
-  nele na lista. Os abertos ficam com o ponto verde e continuam rodando em segundo plano.
-  Para voltar ao stand-by: clique direito no workspace → *Colocar em stand-by* (isso encerra
-  os terminais dele).
-- **Terminal / Sessão IA**: diretório + comando inicial opcional. O cabeçalho mostra a branch
-  do diretório (e se é uma worktree).
-- **Sessão Claude Code**: ao reabrir (app reiniciado ou workspace saindo do stand-by) volta na
-  última conversa usada naquele terminal, mesmo com várias sessões na mesma pasta ou depois
-  de um `/clear`. O ponto ao lado do ícone indica trabalhando (âmbar) ou ociosa (verde). Para
-  outros agentes, escolha "Outro" e informe o comando de retomada.
-- **Conversa entre sessões**: arraste do ponto na lateral de uma sessão Claude até o de outra
-  para conectá-las (selecione a linha e `Del` para desfazer). Sessões conectadas ganham as
-  ferramentas `list_sessions`, `ask_session` e `send_message` por um servidor MCP embutido no
-  app; a linha fica animada enquanto uma espera a outra. Clique direito → *Papel da sessão…*
-  descreve o que cada uma faz, e o texto geral de instruções é editável nas Configurações.
-  Mudanças de papel/instruções valem para sessões iniciadas ou reiniciadas depois.
-- **Sessão mostrando coisas no canvas**: as sessões Claude também têm `open_file`,
-  `create_note`, `create_todo` e `open_terminal`, que abrem o item ao lado da própria sessão.
-  As três primeiras rodam direto; `open_terminal` executa um comando, então o Claude Code pede
-  sua confirmação antes, como faria com o próprio Bash.
-- **Worktree**: marque "Abrir numa worktree git nova" ao criar um terminal/sessão para criar
-  `<repo>.worktrees/<branch>` e já abrir lá. Remover worktrees é pelo terminal.
-- **Ctrl+C** no terminal copia quando há seleção (senão interrompe o processo); **Ctrl+V** cola.
-- **Ctrl+V** com imagem na área de transferência cola o print no canvas.
-- **Explorador** (barra de cima ou clique direito no canvas): uma árvore de pastas no canvas.
-  Clique num arquivo para abri-lo ao lado (se já estiver no canvas, ele é focado); clique
-  direito numa pasta abre terminal ou sessão de IA nela. O filtro procura nas pastas já abertas.
-- **Arrastar arquivos** do Explorer: imagem vira print, qualquer outro abre no editor (Ctrl+S salva).
-- **Clique direito** num elemento: renomear, duplicar, copiar/colar/reiniciar terminal, abrir
-  arquivo no VS Code etc. No canvas vazio: criar um elemento naquele ponto.
-- **Caixa de texto**: com um terminal ou sessão selecionado, aparece uma caixa abaixo dele para
-  escrever com calma: Enter envia, Shift+Enter quebra linha, ↑ com a caixa vazia recupera o
-  que foi enviado, Esc volta ao terminal. Desligável nas Configurações.
-- **Duplo clique no título** renomeia o elemento; num arquivo, renomeia o arquivo no disco.
-- Arrastar o fundo (botão esquerdo, ou direito se ligado nas configurações) move o canvas. O
-  zoom atual aparece no canto superior direito; clique nele para voltar a 100%.
-- **Configurações** (rodapé da sidebar): diretório inicial e shell dos terminais, arrastar com
-  o botão direito, minimapa e controles. Cada workspace pode ter seu próprio diretório padrão
-  (clique direito no workspace).
-- **Excluir workspace** (clique direito → *Excluir…*): *Mover para a lixeira* tira da lista e
-  apaga de vez depois do prazo das Configurações (padrão 7 dias, verificado ao abrir o app);
-  *Excluir agora* apaga na hora. Só o canvas do workspace é apagado (notas, ToDos, prints,
-  posições); arquivos e repositórios abertos nele não são tocados. *Stand-by* não apaga nada.
-
-Os dados ficam em `~/.free-workspace/` (`settings.json` e `workspaces/<id>/` com `canvas.json`
-e `assets/`). Remover um terminal do canvas encerra o processo dele.
-
-## Testes
+## Tests
 
 ```bash
 npm run test:e2e
 ```
 
-Abre o app de verdade num workspace temporário e o controla com eventos reais de mouse e
-teclado (`test/e2e.cjs`): stand-by, zoom, seleção + Ctrl+C com zoom em 50%, colar, menus,
-renomear, arrastar com o botão direito, configurações, retomada de sessão e conversa entre sessões via MCP (hooks simulados),
-branch no cabeçalho, criação de worktree, troca de workspace, terminal crescendo sem
-duplicar linhas, explorador, lixeira, caixa de texto e as ferramentas que abrem itens no canvas. `FW_E2E_REAL=1 npm run test:e2e` inclui um passo com o
-Claude Code real como cliente MCP (gasta alguns tokens).
+Launches the real app in a temporary workspace and drives it with real mouse and keyboard
+events. Set `FW_E2E_REAL=1` to also run a step with the real Claude Code CLI as MCP client
+(uses a few tokens), or `FW_E2E_EXE="<path to the .exe>"` to test a packaged build.
 
-## Stack
+## Built with
 
-Electron + React + [React Flow](https://reactflow.dev) (canvas) + xterm.js/node-pty (terminais) +
-CodeMirror 6 (editor).
+Electron, React, [React Flow](https://reactflow.dev), xterm.js + node-pty, CodeMirror 6.
 
-## Contribuindo
+## Contributing
 
-Issues e pull requests são bem-vindos. Antes de abrir um PR, rode `npm run typecheck` e
-`npm run test:e2e`.
+Issues and pull requests are welcome. Please run `npm run typecheck` and `npm run test:e2e`
+before opening a PR.
 
-## Licença
+## License
 
 [MIT](LICENSE) © Francis Rotilli

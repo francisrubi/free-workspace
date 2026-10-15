@@ -7,7 +7,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import * as pty from '@lydell/node-pty'
-import { DEFAULT_SETTINGS, type Settings } from '../shared/settings'
+import { DEFAULT_SETTINGS, EMPTY_LAYOUT, type Settings, type SidebarLayout } from '../shared/settings'
 import { claudeArgs, startAgentServer, syncAgents, type AgentInfo } from './agents'
 
 // Workspaces live in plain folders (canvas.json + assets/) so they stay readable and
@@ -21,6 +21,13 @@ const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json')
 let settings: Settings = DEFAULT_SETTINGS
 
 ipcMain.handle('settings:get', () => settings)
+
+const SIDEBAR_FILE = path.join(DATA_DIR, 'sidebar.json')
+ipcMain.handle('sidebar:get', () => readJson<SidebarLayout>(SIDEBAR_FILE, EMPTY_LAYOUT))
+ipcMain.handle('sidebar:set', async (_e, layout: SidebarLayout) => {
+  await fs.mkdir(DATA_DIR, { recursive: true })
+  await fs.writeFile(SIDEBAR_FILE, JSON.stringify(layout, null, 2))
+})
 ipcMain.handle('settings:set', async (_e, patch: Partial<Settings>) => {
   settings = { ...settings, ...patch }
   await fs.mkdir(DATA_DIR, { recursive: true })
@@ -34,6 +41,15 @@ protocol.registerSchemesAsPrivileged([
 
 let win: BrowserWindow | null = null
 
+/**
+ * Every message to the renderer goes through here. Terminals keep emitting (last output, exit)
+ * for a moment after the window is gone, and sending to a destroyed window throws — that was
+ * the burst of "Object has been destroyed" error dialogs when closing the app.
+ */
+function toRenderer(channel: string, payload?: unknown): void {
+  if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) win.webContents.send(channel, payload)
+}
+
 function createWindow(): void {
   win = new BrowserWindow({
     width: 1400,
@@ -43,6 +59,9 @@ function createWindow(): void {
     autoHideMenuBar: true,
     webPreferences: { preload: path.join(__dirname, '../preload/index.js'), sandbox: false }
   })
+  // Stop the terminals while the window still exists, so their last events have somewhere to go.
+  win.on('close', killAllTerminals)
+  win.on('closed', () => (win = null))
   if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL)
   else win.loadFile(path.join(__dirname, '../renderer/index.html'))
 
@@ -305,11 +324,11 @@ ipcMain.handle(
     const current = () => sessions.get(opts.id) === s
     proc.onData((d) => {
       s.buffer = (s.buffer + d).slice(-MAX_BUFFER)
-      if (current()) win?.webContents.send(`pty:data:${opts.id}`, d)
+      if (current()) toRenderer(`pty:data:${opts.id}`, d)
     })
     proc.onExit(({ exitCode }) => {
       s.exited = true
-      if (current()) win?.webContents.send(`pty:exit:${opts.id}`, exitCode)
+      if (current()) toRenderer(`pty:exit:${opts.id}`, exitCode)
     })
     const command = opts.command && opts.claude ? opts.command + (await claudeArgs(opts.id, opts.claude.sessionId)) : opts.command
     if (command && current()) proc.write(command + '\r')
@@ -334,7 +353,7 @@ app.whenReady().then(async () => {
   await startAgentServer({
     dataDir: DATA_DIR,
     settings: () => settings,
-    send: (channel, payload) => win?.webContents.send(channel, payload),
+    send: toRenderer,
     write: (id, text) => {
       const s = sessions.get(id)
       if (!s || s.exited) return false
@@ -346,7 +365,11 @@ app.whenReady().then(async () => {
   createWindow()
 })
 
+function killAllTerminals(): void {
+  for (const id of [...sessions.keys()]) kill(id)
+}
+
 app.on('window-all-closed', () => {
-  for (const s of sessions.values()) if (!s.exited) s.proc.kill()
+  killAllTerminals()
   app.quit()
 })

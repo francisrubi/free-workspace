@@ -9,7 +9,12 @@ const path = require('path')
 const S = process.env.FW_E2E_DIR
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const results = []
-const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'}  ${name}${extra ? '  — ' + extra : ''}`)
+// Printed as it goes, so a run that aborts still shows how far it got.
+const check = (name, ok, extra = '') => {
+  const line = `${ok ? 'PASS' : 'FAIL'}  ${name}${extra ? '  — ' + extra : ''}`
+  results.push(line)
+  console.log(line)
+}
 
 module.exports = async (win) => {
   const wc = win.webContents
@@ -380,6 +385,82 @@ module.exports = async (win) => {
   check('desligar minimapa nas configurações', !(await js(`!!document.querySelector('.react-flow__minimap')`)) && saved.showMinimap === false)
   await shot('t3-final.png')
 
+  // 9a. node colors: per kind (Settings) and per node (context menu)
+  // React-controlled inputs only see a value set through the native setter + an input event.
+  const setInput = (sel, value) =>
+    js(`(() => { const el = document.querySelector(${JSON.stringify(sel)})
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, ${JSON.stringify(value)})
+      el.dispatchEvent(new Event('input', { bubbles: true })) })()`)
+  const contextMenuOn = (sel) =>
+    js(`(() => { const el = document.querySelector(${JSON.stringify(sel)}); const r = el.getBoundingClientRect()
+      el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.x + 5, clientY: r.y + 5 })) })()`)
+  const frameOf = (sel) => js(`(() => { const f = document.querySelector(${JSON.stringify(sel)} + ' .fw-node'); return { colored: f.classList.contains('colored'), color: f.style.getPropertyValue('--node-color') } })()`)
+  await clickText('.fw-ws', 'Configurações')
+  await sleep(200)
+  await setInput('.fw-color-item[data-kind="terminal"] input[type="color"]', '#ff0000')
+  await clickText('.fw-modal button', 'Salvar')
+  await sleep(400)
+  const t1Frame = await frameOf('.react-flow__node[data-id="t1"]')
+  const noteFrame = await frameOf('.react-flow__node-note')
+  check('cor padrão do tipo pinta os terminais (e só eles)', t1Frame.colored && t1Frame.color === '#ff0000' && !noteFrame.colored, JSON.stringify({ t1Frame, noteFrame }))
+  await contextMenuOn('.react-flow__node-note .fw-node-header')
+  await sleep(200)
+  await clickText('.fw-menu button', 'Cor…')
+  await sleep(200)
+  await setInput('#fw-node-color-picker', '#00ff00')
+  await sleep(900)
+  const noteId = await js(`document.querySelector('.react-flow__node-note').dataset.id`)
+  const savedNote = JSON.parse(fs.readFileSync(path.join(S, 'fwdata', 'workspaces', 'test', 'canvas.json'), 'utf8')).nodes.find((n) => n.id === noteId)
+  check('cor de um nó específico pelo menu (e salva no canvas)', (await frameOf('.react-flow__node-note')).color === '#00ff00' && savedNote.data.color === '#00ff00')
+  await contextMenuOn('.react-flow__node-note .fw-node-header')
+  await sleep(200)
+  await clickText('.fw-menu button', 'Usar a cor padrão')
+  await sleep(300)
+  check('voltar o nó para a cor padrão do tipo', !(await frameOf('.react-flow__node-note')).colored)
+
+  // 9a'. sidebar groups
+  const sidebarFile = () => JSON.parse(fs.readFileSync(path.join(S, 'fwdata', 'sidebar.json'), 'utf8'))
+  // HTML5 drag & drop through DOM events sharing one DataTransfer (what the handlers read).
+  const dnd = (srcSel, dstSel, yFrac = 0.5) =>
+    js(`(() => { const src = document.querySelector(${JSON.stringify(srcSel)}), dst = document.querySelector(${JSON.stringify(dstSel)})
+      const dt = new DataTransfer(), r = dst.getBoundingClientRect()
+      const at = { bubbles: true, cancelable: true, dataTransfer: dt, clientX: r.x + 10, clientY: r.y + r.height * ${yFrac} }
+      src.dispatchEvent(new DragEvent('dragstart', at))
+      dst.dispatchEvent(new DragEvent('dragover', at))
+      dst.dispatchEvent(new DragEvent('drop', at))
+      src.dispatchEvent(new DragEvent('dragend', at)) })()`)
+  await clickText('.fw-sidebar-actions button', 'grupo')
+  await sleep(200)
+  const focusBefore = await js(`(() => { const a = document.activeElement; return a ? a.tagName + '.' + a.className + (a.closest('.react-flow__node') ? ' @node ' + a.closest('.react-flow__node').dataset.id : '') : 'none' })()`)
+  await key('A', ['control'])
+  await type('Projetos')
+  await key('Return')
+  await sleep(300)
+  const groupName = await js(`document.querySelector('.fw-group-name')?.textContent ?? ('input:' + document.querySelector('.fw-group-head input.fw-ws-input')?.value)`)
+  check('criar e nomear um grupo', groupName === 'Projetos', `nome=${groupName}; foco antes de digitar=${focusBefore}`)
+  await dnd('[data-ws="test"]', '.fw-group-head')
+  await sleep(200)
+  await dnd('[data-ws="other"]', '.fw-group [data-ws="test"]', 0.2)
+  await sleep(500)
+  const inGroup = await js(`[...document.querySelectorAll('.fw-group [data-ws]')].map(b => b.dataset.ws).join(',')`)
+  const gid = sidebarFile().groups[0]?.id
+  check('arrastar workspaces para dentro do grupo e reordenar', inGroup === 'other,test' && sidebarFile().members[gid]?.join(',') === 'other,test', inGroup)
+  await js(`document.querySelector('.fw-group-name').click()`)
+  await sleep(200)
+  const collapsed = await js(`({ hidden: !document.querySelector('.fw-group [data-ws]'), count: document.querySelector('.fw-group-count').textContent })`)
+  await js(`document.querySelector('.fw-group-name').click()`)
+  await sleep(200)
+  check('recolher e expandir o grupo', collapsed.hidden && collapsed.count === '2' && !!(await js(`document.querySelector('.fw-group [data-ws="test"]')`)), JSON.stringify(collapsed))
+  await shot('t-groups.png')
+  await setInput('.fw-group-head input[type="color"]', '#ff9e64')
+  await sleep(400)
+  check('trocar a cor do grupo', sidebarFile().groups[0].color === '#ff9e64')
+  await contextMenuOn('.fw-group-head')
+  await sleep(200)
+  await clickText('.fw-menu button', 'Excluir grupo')
+  await sleep(400)
+  check('excluir o grupo devolve os workspaces à lista', !(await js(`!!document.querySelector('.fw-group')`)) && !!(await js(`document.querySelector('[data-ws="test"]')`)) && sidebarFile().groups.length === 0)
+
   // 9b. switching workspace hides the previous one's nodes; each canvas draws its own grid
   await clickText('.fw-ws', 'Outro')
   await waitFor(`!!document.querySelector('.react-flow__node[data-id="n-other"]')`, 5000)
@@ -461,6 +542,5 @@ module.exports = async (win) => {
   check('colocar em stand-by descarrega o workspace',
     await js(`!!document.querySelector('.fw-empty') && !document.querySelector('.react-flow__node-terminal') && !![...document.querySelectorAll('.fw-ws')].find(b => b.textContent.includes('Teste'))?.querySelector('.fw-ws-dot:not(.on)')`))
 
-  console.log('\n' + results.join('\n'))
   if (results.some((r) => r.startsWith('FAIL'))) process.exitCode = 1
 }

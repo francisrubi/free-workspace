@@ -2,7 +2,7 @@
 // plus a small git repo, and runs test/e2e.cjs
 // inside the built app. Needs `electron-vite build` first (the npm script does it).
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -87,5 +87,23 @@ const r = spawnSync(exe || electron, exe ? [] : ['.'], {
   stdio: 'inherit',
   env: { ...env, FW_DATA_DIR: path.join(dir, 'fwdata'), FW_E2E_DIR: dir, FW_TEST: path.join(root, 'test', 'e2e.cjs') }
 })
+// Second launch on the same data: close the window with terminals running.
+spawnSync(exe || electron, exe ? [] : ['.'], {
+  cwd: root,
+  stdio: 'ignore',
+  env: { ...env, FW_DATA_DIR: path.join(dir, 'fwdata'), FW_E2E_DIR: dir, FW_TEST: path.join(root, 'test', 'close-app.cjs') }
+})
+let closeErrors
+try {
+  closeErrors = JSON.parse(readFileSync(path.join(dir, 'close-errors.json'), 'utf8'))
+} catch {
+  closeErrors = ['close-app.cjs não rodou']
+}
+console.log(
+  closeErrors.length
+    ? `FAIL  fechar o app com terminais rodando não gera erro  — ${closeErrors.length} erro(s): ${closeErrors[0].split('\n')[0]}`
+    : 'PASS  fechar o app com terminais rodando não gera erro'
+)
+
 console.log(`\nscreenshots e dados em ${dir}`)
-process.exit(r.status ?? 1)
+process.exit(closeErrors.length ? 1 : (r.status ?? 1))

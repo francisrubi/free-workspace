@@ -1,3 +1,5 @@
+import type { NodeColors } from './colors'
+
 export type Settings = {
   terminalCwd: string
   workspaceCwd: string
@@ -13,6 +15,8 @@ export type Settings = {
   composer: boolean
   /** A workspace moved to the trash is deleted for good after this many days. */
   trashDays: number
+  /** Default color per node kind; a node's own `data.color` wins. */
+  nodeColors: NodeColors
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -25,8 +29,21 @@ export const DEFAULT_SETTINGS: Settings = {
   agentMcp: true,
   agentInstructions: '',
   trashDays: 7,
-  composer: true
+  composer: true,
+  nodeColors: {}
 }
+
+/**
+ * Sidebar arrangement: colored, collapsible groups of workspaces, in order. Workspaces in no
+ * list (e.g. just created) show up at the end of `ungrouped`.
+ */
+export type SidebarLayout = {
+  groups: { id: string; name: string; color: string; collapsed?: boolean }[]
+  ungrouped: string[]
+  members: Record<string, string[]>
+}
+
+export const EMPTY_LAYOUT: SidebarLayout = { groups: [], ungrouped: [], members: {} }
 
 /** Marks a prompt as coming from another session; the hook handler matches replies by it. */
 export const MESSAGE_TAG = 'fw-msg'

@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import os from 'node:os'
 
-import type { Settings } from '../shared/settings'
+import type { Settings, SidebarLayout } from '../shared/settings'
 
 type CanvasItem =
   | { type: 'file'; path: string }
@@ -27,6 +27,10 @@ const api = {
   settings: {
     get: () => ipcRenderer.invoke('settings:get') as Promise<Settings>,
     set: (patch: Partial<Settings>) => ipcRenderer.invoke('settings:set', patch) as Promise<Settings>
+  },
+  sidebar: {
+    get: () => ipcRenderer.invoke('sidebar:get') as Promise<SidebarLayout>,
+    set: (layout: SidebarLayout) => ipcRenderer.invoke('sidebar:set', layout) as Promise<void>
   },
   file: {
     read: (p: string) => ipcRenderer.invoke('file:read', p) as Promise<string>,

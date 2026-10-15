@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { COLOR_KINDS } from '../../shared/colors'
 import { DEFAULT_AGENT_INSTRUCTIONS, type Settings } from '../../shared/settings'
 
 type Props = { settings: Settings; onSave: (s: Settings) => void; onCancel: () => void }
@@ -66,6 +67,31 @@ export function SettingsDialog({ settings, onSave, onCancel }: Props) {
           <input type="checkbox" checked={s.showControls} onChange={(e) => set({ showControls: e.target.checked })} />
           Mostrar controles do canvas (canto inferior esquerdo)
         </label>
+        <div className="fw-field">
+          Cores por tipo de elemento
+          <div className="fw-color-grid">
+            {COLOR_KINDS.map(([kind, label]) => {
+              const value = s.nodeColors[kind]
+              return (
+                <label key={kind} className="fw-color-item" data-kind={kind}>
+                  <input
+                    type="color"
+                    value={value ?? '#7aa2f7'}
+                    className={value ? '' : 'unset'}
+                    onChange={(e) => set({ nodeColors: { ...s.nodeColors, [kind]: e.target.value } })}
+                  />
+                  {label}
+                  {value && (
+                    <button type="button" className="fw-link" title="Sem cor" onClick={() => set({ nodeColors: { ...s.nodeColors, [kind]: undefined } })}>
+                      ×
+                    </button>
+                  )}
+                </label>
+              )
+            })}
+          </div>
+          <span className="fw-help">Cada elemento pode ter a própria cor: clique direito → Cor….</span>
+        </div>
         <label>
           Dias na lixeira antes de apagar de vez
           <input type="number" min={1} max={365} value={s.trashDays} onChange={(e) => set({ trashDays: Math.max(1, Number(e.target.value) || 1) })} />

@@ -7,6 +7,7 @@ import { SettingsContext } from './context'
 import { DeleteWorkspaceDialog } from './DeleteWorkspaceDialog'
 import { SettingsDialog } from './SettingsDialog'
 import type { Workspace } from './types'
+import { WorkspaceList } from './WorkspaceList'
 
 const DAY = 86_400_000
 
@@ -87,38 +88,19 @@ export default function App() {
     <SettingsContext.Provider value={settings}>
       <div className="fw-app">
         <aside className="fw-sidebar">
-          <div className="fw-sidebar-head">Workspaces</div>
-          {live.map((w) =>
-            renaming === w.id ? (
-              <input
-                key={w.id}
-                className="fw-ws-input"
-                autoFocus
-                defaultValue={w.name}
-                onFocus={(e) => e.target.select()}
-                onBlur={(e) => {
-                  update(w.id, { name: e.target.value.trim() || w.name })
-                  setRenaming(null)
-                }}
-                onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-              />
-            ) : (
-              <button
-                key={w.id}
-                className={`fw-ws${w.id === active ? ' active' : ''}`}
-                onClick={() => open(w.id)}
-                onDoubleClick={() => setRenaming(w.id)}
-                onContextMenu={(e) => workspaceMenu(e, w)}
-                title={opened.includes(w.id) ? 'Aberto' : 'Em stand-by: clique para abrir'}
-              >
-                <span className={`fw-ws-dot${opened.includes(w.id) ? ' on' : ''}`} />
-                {w.name}
-              </button>
-            )
-          )}
-          <button className="fw-ws fw-ws-add" onClick={create}>
-            + novo workspace
-          </button>
+          <WorkspaceList
+            workspaces={live}
+            opened={opened}
+            active={active}
+            renaming={renaming}
+            onOpen={open}
+            onRename={(id, name) => update(id, { name })}
+            onRenamed={() => setRenaming(null)}
+            onStartRename={setRenaming}
+            onCreate={create}
+            onWorkspaceMenu={workspaceMenu}
+            openMenu={openMenu}
+          />
           <div className="fw-sidebar-foot">
             {trash.length > 0 && (
               <>

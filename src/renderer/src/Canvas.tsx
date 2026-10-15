@@ -16,6 +16,7 @@ import {
 } from '@xyflow/react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useContextMenu, type MenuItem } from './ContextMenu'
+import { nodeColor } from '../../shared/colors'
 import { CanvasContext, useSettings } from './context'
 import { ExplorerNode } from './nodes/ExplorerNode'
 import { FileNode } from './nodes/FileNode'
@@ -50,6 +51,9 @@ export function Canvas({ workspace, active }: { workspace: Workspace; active: bo
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
   const [waiting, setWaiting] = useState<Set<string>>(new Set())
   const [roleFor, setRoleFor] = useState<string | null>(null)
+  // Node whose color the hidden <input type=color> below is editing.
+  const [colorFor, setColorFor] = useState<string | null>(null)
+  const colorInput = useRef<HTMLInputElement>(null)
   const [loaded, setLoaded] = useState<Saved | null>(null)
   const [loadError, setLoadError] = useState('')
   const [dialog, setDialog] = useState<{ kind: TerminalData['kind']; at?: Point; cwd?: string } | null>(null)
@@ -260,6 +264,21 @@ export function Canvas({ workspace, active }: { workspace: Workspace; active: bo
     add({ type: node.type, data, width: w, height: h, position: { x: node.position.x + w / 2 + 30, y: node.position.y + h / 2 + 30 } } as NewNode)
   }
 
+  const setNodeColor = (id: string, color: string | undefined) =>
+    setNodes((ns) => ns.map((n) => (n.id === id ? ({ ...n, data: { ...n.data, color } } as FwNode) : n)))
+  const pickColor = (node: FwNode) => {
+    const input = colorInput.current!
+    input.value = nodeColor(node.type, node.data, settings.nodeColors) ?? '#7aa2f7'
+    setColorFor(node.id)
+    // The e2e test sets the value itself: a native picker it can't see would hold the keyboard.
+    if (window.api.isTest) return
+    try {
+      input.showPicker() // works from the menu click (a user gesture)
+    } catch {
+      // No gesture (scripted click): nothing to show the picker for.
+    }
+  }
+
   const nodeMenu = (node: FwNode): MenuItem[] => {
     const specific: MenuItem[] = []
     if (node.type === 'terminal') {
@@ -301,6 +320,8 @@ export function Canvas({ workspace, active }: { workspace: Workspace; active: bo
     return [
       { label: 'Renomear', onClick: () => setRenamingId(node.id) },
       { label: 'Duplicar', onClick: () => duplicate(node) },
+      { label: 'Cor…', onClick: () => pickColor(node) },
+      ...(node.data.color ? [{ label: 'Usar a cor padrão do tipo', onClick: () => setNodeColor(node.id, undefined) }] : []),
       ...(specific.length ? (['sep', ...specific] as MenuItem[]) : []),
       'sep',
       { label: node.type === 'terminal' ? 'Remover (encerra o processo)' : 'Remover', danger: true, onClick: () => deleteElements({ nodes: [{ id: node.id }] }) }
@@ -366,9 +387,19 @@ export function Canvas({ workspace, active }: { workspace: Workspace; active: bo
         >
           <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} />
           {settings.showControls && <Controls showZoom={false} />}
-          {settings.showMinimap && <MiniMap pannable zoomable />}
+          {settings.showMinimap && (
+            <MiniMap pannable zoomable nodeColor={(n) => nodeColor(n.type, n.data, settings.nodeColors) ?? '#2c313b'} />
+          )}
         </ReactFlow>
         {menu}
+        <input
+          ref={colorInput}
+          id="fw-node-color-picker"
+          type="color"
+          className="fw-hidden-input"
+          tabIndex={-1}
+          onChange={(e) => colorFor && setNodeColor(colorFor, e.target.value)}
+        />
         {roleFor && (
           <RoleDialog
             node={nodes.find((n) => n.id === roleFor)}

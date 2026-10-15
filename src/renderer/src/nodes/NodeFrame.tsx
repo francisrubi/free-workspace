@@ -1,6 +1,7 @@
-import { NodeResizer, useReactFlow } from '@xyflow/react'
+import { NodeResizer, useNodesData, useReactFlow } from '@xyflow/react'
+import { nodeColor } from '../../../shared/colors'
 import { useState, type ReactNode } from 'react'
-import { useCanvas } from '../context'
+import { useCanvas, useSettings } from '../context'
 
 type Props = {
   id: string
@@ -29,6 +30,9 @@ export function NodeFrame({ id, selected, title, subtitle, icon, status, actions
   const { renamingId, setRenamingId } = useCanvas()
   const [error, setError] = useState('')
   const renaming = renamingId === id
+  const node = useNodesData(id)
+  const { nodeColors } = useSettings()
+  const color = node ? nodeColor(node.type, node.data, nodeColors) : undefined
 
   const commit = async (value: string) => {
     const name = value.trim()
@@ -45,7 +49,10 @@ export function NodeFrame({ id, selected, title, subtitle, icon, status, actions
   }
 
   return (
-    <div className={`fw-node${selected ? ' selected' : ''}`}>
+    <div
+      className={`fw-node${selected ? ' selected' : ''}${color ? ' colored' : ''}`}
+      style={color ? ({ '--node-color': color } as React.CSSProperties) : undefined}
+    >
       <NodeResizer isVisible={!!selected} minWidth={minWidth} minHeight={minHeight} lineClassName="fw-resize-line" handleClassName="fw-resize-handle" />
       <div className="fw-node-header fw-drag">
         <span className="fw-node-icon">{icon}</span>

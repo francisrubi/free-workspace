@@ -21,18 +21,20 @@ export type TerminalData = {
   /** Last Claude conversation used in this terminal, reported by its hooks. */
   sessionId?: string
   started?: boolean
+  /** Overrides the kind's default color (Settings). Same field on every node type. */
+  color?: string
 }
 
 export const isClaude = (d: TerminalData) =>
   d.kind === 'ai' && (d.provider === 'claude' || (d.provider === undefined && /^claude(\s|$)/.test(d.command ?? '')))
 /** `title` overrides the note's first line as its header. */
-export type NoteData = { text: string; title?: string }
+export type NoteData = { text: string; title?: string; color?: string }
 /** The header is the file name; renaming it renames the file on disk. */
-export type FileData = { path: string }
-export type ImageData = { src: string; title?: string }
-export type TodoData = { title: string; items: { id: string; text: string; done: boolean }[] }
+export type FileData = { path: string; color?: string }
+export type ImageData = { src: string; title?: string; color?: string }
+export type TodoData = { title: string; items: { id: string; text: string; done: boolean }[]; color?: string }
 /** `open`: expanded folders, kept so the tree reopens the same way. */
-export type ExplorerData = { root: string; title?: string; open?: string[] }
+export type ExplorerData = { root: string; title?: string; open?: string[]; color?: string }
 
 export type FwNode =
   | Node<TerminalData, 'terminal'>
