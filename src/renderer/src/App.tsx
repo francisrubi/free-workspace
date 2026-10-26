@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import type { Settings } from '../../shared/settings'
 import { Canvas } from './Canvas'
 import { useContextMenu } from './ContextMenu'
-import { SettingsContext } from './context'
+import { SettingsContext, WorkspacesContext } from './context'
 import { DeleteWorkspaceDialog } from './DeleteWorkspaceDialog'
 import { SettingsDialog } from './SettingsDialog'
 import type { Workspace } from './types'
@@ -86,6 +86,7 @@ export default function App() {
 
   return (
     <SettingsContext.Provider value={settings}>
+      <WorkspacesContext.Provider value={{ workspaces: live, opened }}>
       <div className="fw-app">
         <aside className="fw-sidebar">
           <WorkspaceList
@@ -169,6 +170,7 @@ export default function App() {
           />
         )}
       </div>
+      </WorkspacesContext.Provider>
     </SettingsContext.Provider>
   )
 }

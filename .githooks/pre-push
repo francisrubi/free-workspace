@@ -1,0 +1,5 @@
+#!/bin/sh
+# The full e2e suite runs once per push instead of after every change.
+# Skip it for a push with: git push --no-verify
+echo "pre-push: rodando os testes e2e (npm run test:e2e)..."
+npm run test:e2e

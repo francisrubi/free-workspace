@@ -63,6 +63,7 @@ export function TerminalDialog({ kind, defaultCwd, onCancel, onCreate }: Props) 
       setBusy(true)
       try {
         dir = await window.api.git.addWorktree(cwd, branch.trim(), base.trim() || undefined)
+        window.dispatchEvent(new Event('fw:git-changed')) // terminals refresh their branch/worktree list
       } catch (err) {
         setError((err as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
         return

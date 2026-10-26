@@ -136,11 +136,16 @@ export function WorkspaceList(p: Props) {
           autoFocus
           defaultValue={w.name}
           onFocus={(e) => e.target.select()}
+          // Enter commits directly: blur() fires no event while the window is in the background.
           onBlur={(e) => {
             p.onRename(id, e.target.value.trim() || w.name)
             p.onRenamed()
           }}
-          onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter') return
+            p.onRename(id, e.currentTarget.value.trim() || w.name)
+            p.onRenamed()
+          }}
         />
       )
     const isOpen = p.opened.includes(id)
@@ -226,7 +231,11 @@ export function WorkspaceList(p: Props) {
                     setGroup(g.id, { name: e.target.value.trim() || g.name })
                     setRenamingGroup(null)
                   }}
-                  onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter') return
+                    setGroup(g.id, { name: e.currentTarget.value.trim() || g.name })
+                    setRenamingGroup(null)
+                  }}
                 />
               ) : (
                 <span className="fw-group-name" onDoubleClick={(e) => (e.stopPropagation(), setRenamingGroup(g.id))}>

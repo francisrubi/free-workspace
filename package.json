@@ -9,9 +9,10 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test:e2e": "electron-vite build && node test/run-e2e.mjs",
+    "test:e2e": "electron-vite build && node test/e2e/run.mjs",
     "dist": "electron-vite build && electron-builder",
-    "dist:dir": "electron-vite build && electron-builder --dir"
+    "dist:dir": "electron-vite build && electron-builder --dir",
+    "prepare": "git config core.hooksPath .githooks || exit 0"
   },
   "dependencies": {
     "@lydell/node-pty": "^1.2.0-beta.15"

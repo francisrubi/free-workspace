@@ -36,13 +36,19 @@ export type TodoData = { title: string; items: { id: string; text: string; done:
 /** `open`: expanded folders, kept so the tree reopens the same way. */
 export type ExplorerData = { root: string; title?: string; open?: string[]; color?: string }
 
+/**
+ * Tab groups are visual only: members stay separate nodes (their terminals keep running) and
+ * share one spot on the canvas; only the active one is shown, with every member as a tab.
+ */
+export type Stackable = { stack?: string; stackActive?: boolean }
+
 export type FwNode =
-  | Node<TerminalData, 'terminal'>
-  | Node<NoteData, 'note'>
-  | Node<FileData, 'file'>
-  | Node<ImageData, 'image'>
-  | Node<TodoData, 'todo'>
-  | Node<ExplorerData, 'explorer'>
+  | Node<TerminalData & Stackable, 'terminal'>
+  | Node<NoteData & Stackable, 'note'>
+  | Node<FileData & Stackable, 'file'>
+  | Node<ImageData & Stackable, 'image'>
+  | Node<TodoData & Stackable, 'todo'>
+  | Node<ExplorerData & Stackable, 'explorer'>
 
 /** `deletedAt`: in the trash since then (see settings.trashDays). */
 export type Workspace = { id: string; name: string; createdAt: string; cwd?: string; deletedAt?: string | null }

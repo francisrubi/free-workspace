@@ -12,7 +12,7 @@ const baseName = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() ?? p
 
 /** A folder tree on the canvas: click a file to open it next to the explorer. */
 export function ExplorerNode({ id, data, selected }: Props) {
-  const { openPath, newTerminal, openMenu } = useCanvas()
+  const { openPath, newTerminal, openMenu, openLazygit } = useCanvas()
   const { updateNodeData } = useReactFlow()
   // Directory listings loaded so far; folders load lazily when expanded.
   const [children, setChildren] = useState<Record<string, Entry[] | string>>({})
@@ -58,6 +58,7 @@ export function ExplorerNode({ id, data, selected }: Props) {
         ? [
             { label: '›_  Terminal aqui', onClick: () => newTerminal('shell', entry.path) },
             { label: '✦  Sessão IA aqui', onClick: () => newTerminal('ai', entry.path) },
+            { label: '⎇  Git (lazygit) aqui', onClick: () => openLazygit(entry.path, id) },
             'sep',
             ...common
           ]

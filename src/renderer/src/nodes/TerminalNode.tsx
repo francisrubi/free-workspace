@@ -3,10 +3,11 @@ import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
 import { useEffect, useRef, useState } from 'react'
 import { useCanvas, useSettings } from '../context'
-import { copySelection, terminals } from '../terminals'
+import { copySelection, gitInfo, terminals } from '../terminals'
 import { isClaude, type FwNode, type TerminalData } from '../types'
 import { Composer } from './Composer'
 import { NodeFrame } from './NodeFrame'
+import type { GitInfo } from '../../../preload'
 
 type Props = NodeProps<Extract<FwNode, { type: 'terminal' }>>
 
@@ -17,7 +18,7 @@ export function TerminalNode({ id, data, selected }: Props) {
   const { composer } = useSettings()
   const [generation, setGeneration] = useState(0)
   const [status, setStatus] = useState<'working' | 'idle'>()
-  const [git, setGit] = useState<{ branch: string; worktree: boolean } | null>(null)
+  const [git, setGit] = useState<GitInfo | null>(null)
   const dataRef = useRef<TerminalData>(data)
   dataRef.current = data
 
@@ -68,7 +69,14 @@ export function TerminalNode({ id, data, selected }: Props) {
     window.api.pty
       .open({ id, workspaceId, cwd: d.cwd, command, claude: claude ? { sessionId: d.sessionId } : undefined, cols: term.cols, rows: term.rows })
       .then(({ replay }) => {
-        if (replay) term.write(replay)
+        if (replay) {
+          term.write(replay)
+          // Re-attached to a running process (workspace switch or move): the replayed bytes can
+          // leave a full-screen program (Claude Code, lazygit) half drawn. Nudging the size makes
+          // it redraw the whole screen.
+          window.api.pty.resize(id, term.cols, Math.max(1, term.rows - 1))
+          setTimeout(() => window.api.pty.resize(id, term.cols, term.rows), 80)
+        }
         if (!d.started) updateNodeData(id, { started: true })
       })
     const inSub = term.onData((s) => window.api.pty.write(id, s))
@@ -85,7 +93,8 @@ export function TerminalNode({ id, data, selected }: Props) {
     })
 
     return () => {
-      terminals.delete(id)
+      // A moved node mounts in the other canvas with the same id, possibly before this unmounts.
+      if (terminals.get(id)?.term === term) terminals.delete(id)
       ro.disconnect()
       inSub.dispose()
       rsSub.dispose()
@@ -99,7 +108,9 @@ export function TerminalNode({ id, data, selected }: Props) {
   useEffect(() => {
     if (!isClaude(dataRef.current)) return
     return window.api.onAgentEvent(id, ({ sessionId, event }) => {
-      if (sessionId !== dataRef.current.sessionId) updateNodeData(id, { sessionId })
+      // Only ids of conversations with a message: --resume can't open an empty one (SessionStart
+      // reports the id as soon as the CLI starts).
+      if (event !== 'SessionStart' && sessionId !== dataRef.current.sessionId) updateNodeData(id, { sessionId })
       setStatus(event === 'UserPromptSubmit' ? 'working' : 'idle')
     })
   }, [id, updateNodeData, data.provider, data.command])
@@ -109,14 +120,23 @@ export function TerminalNode({ id, data, selected }: Props) {
     if (!data.cwd) return
     const cwd = data.cwd
     let alive = true
-    const refresh = () => window.api.git.info(cwd).then((g) => alive && setGit(g))
+    const refresh = () =>
+      window.api.git.info(cwd).then((g) => {
+        if (!alive) return
+        setGit(g)
+        if (g) gitInfo.set(id, g)
+        else gitInfo.delete(id)
+      })
     refresh()
     const timer = setInterval(refresh, 15000)
+    window.addEventListener('fw:git-changed', refresh)
     return () => {
       alive = false
       clearInterval(timer)
+      window.removeEventListener('fw:git-changed', refresh)
+      gitInfo.delete(id)
     }
-  }, [data.cwd])
+  }, [id, data.cwd])
 
   const where = git ? `⎇ ${git.branch}${git.worktree ? ' (worktree)' : ''}` : undefined
 

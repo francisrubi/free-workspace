@@ -15,7 +15,8 @@ const mdExtensions = [markdown({ codeLanguages: languages }), ...editorTheme]
 export function NoteNode({ id, data, selected }: Props) {
   const { updateNodeData } = useReactFlow()
   const [editing, setEditing] = useState(!data.text)
-  const html = useMemo(() => (editing ? '' : (marked.parse(data.text || '*Nota vazia*') as string)), [data.text, editing])
+  // breaks: a single Enter is a line break, as typed (plain Markdown would join the lines).
+  const html = useMemo(() => (editing ? '' : (marked.parse(data.text || '*Nota vazia*', { breaks: true }) as string)), [data.text, editing])
   const firstLine = data.text.split('\n')[0].replace(/^#+\s*/, '').slice(0, 60) || 'Nota'
 
   return (

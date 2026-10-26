@@ -22,9 +22,14 @@ and a screenshot tool.
 - **Sessions that talk to each other** — connect two sessions on the canvas and they can ask
   each other questions through a built-in MCP server (see below).
 - **Git-aware** — each terminal shows its branch and whether it's a worktree; new terminals
-  and sessions can start in a fresh worktree from any branch.
+  and sessions can start in a fresh worktree from any branch. From a terminal you can open a
+  file explorer in its folder or in any worktree of the repo, or
+  [lazygit](https://github.com/jesseduffield/lazygit) for everything else.
 - **Workspaces** — one canvas per project, organized in colored, collapsible groups. They
   stay on stand-by until opened, and deleted ones go to a trash with scheduled removal.
+- **Tab groups** — drop a node's header onto another's to stack them as tabs (e.g. the
+  terminals that start your APIs and front-end); drag a tab out to split it again. Nodes can
+  also move to another workspace. Either way, running terminals and sessions keep going.
 - **Comfortable prompting** — a text box under the selected terminal for writing multi-line
   prompts (Shift+Enter for a new line).
 
@@ -45,6 +50,7 @@ the app (localhost only, nothing to install). It gives the session these tools:
 | `create_note` | Creates a Markdown note on the canvas. |
 | `create_todo` | Creates a to-do list on the canvas. |
 | `open_terminal` | Opens a terminal on the canvas, optionally running a command. Asks for your confirmation first. |
+| `open_session` | Opens a new Claude Code session, already connected to the caller. Only when you ask to delegate; limited to the caller's folder or a worktree of the same repo, `medium`/`high` effort, 3 per session, and asks for your confirmation. |
 
 Sessions only see the sessions you've connected to them by dragging a link between them. Each
 session can have a role describing what it's for, and the instructions sent to all sessions
@@ -81,9 +87,18 @@ Data is stored in `~/.free-workspace/`.
 npm run test:e2e
 ```
 
-Launches the real app in a temporary workspace and drives it with real mouse and keyboard
-events. Set `FW_E2E_REAL=1` to also run a step with the real Claude Code CLI as MCP client
-(uses a few tokens), or `FW_E2E_EXE="<path to the .exe>"` to test a packaged build.
+Launches the real app on throwaway data and drives it with real mouse and keyboard events.
+The suite is split into modules — `canvas`, `sessions`, `git`, `sidebar`, `layout`, `close` —
+each with its own data, so you can run only what you touched:
+
+```bash
+npm run test:e2e -- sessions layout
+```
+
+The full suite (about a minute and a half) runs before each `git push` through the hook in
+`.githooks/` (enabled by `npm install`; skip it with `git push --no-verify`). Set
+`FW_E2E_REAL=1` to also run a step with the real Claude Code CLI as MCP client (uses a few
+tokens), or `FW_E2E_EXE="<path to the .exe>"` to test a packaged build.
 
 ## Built with
 

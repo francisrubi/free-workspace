@@ -206,3 +206,17 @@ input[type='color'].unset { opacity: 0.35; }
 .drop-before { box-shadow: inset 0 2px 0 var(--accent); }
 .drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
 .drop-into { outline: 1px dashed var(--accent); outline-offset: -1px; }
+
+/* notices */
+.fw-command { flex: 1; padding: 6px 8px; background: #111318; border: 1px solid var(--border); border-radius: 6px; font-family: 'Cascadia Mono', Consolas, monospace; font-size: 12px; user-select: all; overflow-x: auto; white-space: nowrap; }
+
+/* move dialog */
+.fw-move-list { display: flex; flex-direction: column; gap: 2px; max-height: 300px; overflow-y: auto; }
+
+/* tab groups */
+.react-flow__node.fw-stack-hidden { visibility: hidden !important; pointer-events: none !important; }
+.fw-tabs { flex: 0 1 auto; min-width: 0; max-width: calc(100% - 90px); margin-right: auto; display: flex; gap: 2px; align-self: stretch; align-items: flex-end; overflow-x: auto; scrollbar-width: none; }
+.fw-tab { --tab-color: var(--border-strong); display: flex; align-items: center; gap: 5px; max-width: 180px; height: 26px; padding: 0 10px; border: none; border-top: 2px solid var(--tab-color); border-radius: 6px 6px 0 0; background: rgba(15, 17, 21, 0.72); color: #b4bac6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; cursor: pointer; flex-shrink: 0; }
+.fw-tab:hover { background: rgba(15, 17, 21, 0.9); color: var(--text); }
+.fw-tab.active { background: var(--node); color: var(--text); font-weight: 500; }
+.fw-tab-icon { color: var(--tab-color); font-size: 11px; }

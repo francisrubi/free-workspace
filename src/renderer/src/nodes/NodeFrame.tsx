@@ -1,7 +1,7 @@
 import { NodeResizer, useNodesData, useReactFlow } from '@xyflow/react'
 import { nodeColor } from '../../../shared/colors'
 import { useState, type ReactNode } from 'react'
-import { useCanvas, useSettings } from '../context'
+import { useCanvas, useSettings, useStack } from '../context'
 
 type Props = {
   id: string
@@ -28,6 +28,8 @@ type Props = {
 export function NodeFrame({ id, selected, title, subtitle, icon, status, actions, children, onRename, minWidth = 200, minHeight = 120 }: Props) {
   const { deleteElements, updateNodeData } = useReactFlow()
   const { renamingId, setRenamingId } = useCanvas()
+  const { tabsOf, activate, detach } = useStack()
+  const tabs = tabsOf.get(id)
   const [error, setError] = useState('')
   const renaming = renamingId === id
   const node = useNodesData(id)
@@ -74,6 +76,34 @@ export function NodeFrame({ id, selected, title, subtitle, icon, status, actions
               }
             }}
           />
+        ) : tabs ? (
+          <span className="fw-tabs nodrag">
+            {tabs.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                data-tab={t.id}
+                className={`fw-tab${t.active ? ' active' : ''}`}
+                style={t.color ? ({ '--tab-color': t.color } as React.CSSProperties) : undefined}
+                title={`${t.title} · arraste para fora do cabeçalho para separar`}
+                onClick={() => !t.active && activate(t.id)}
+                onDoubleClick={() => t.active && setRenamingId(t.id)}
+                // Dragging a tab out of the header takes it out of the group, dropped where released.
+                onPointerDown={(e) => {
+                  const header = e.currentTarget.closest('.fw-node-header')!.getBoundingClientRect()
+                  const up = (ev: PointerEvent) => {
+                    window.removeEventListener('pointerup', up)
+                    const out = ev.clientY < header.top - 20 || ev.clientY > header.bottom + 20 || ev.clientX < header.left - 20 || ev.clientX > header.right + 20
+                    if (out) detach(t.id, ev.clientX, ev.clientY)
+                  }
+                  window.addEventListener('pointerup', up)
+                }}
+              >
+                <span className="fw-tab-icon">{t.icon}</span>
+                {t.title}
+              </button>
+            ))}
+          </span>
         ) : (
           <span className="fw-node-title" onDoubleClick={() => setRenamingId(id)} title="Duplo clique para renomear">
             {title}

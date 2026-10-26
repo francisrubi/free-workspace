@@ -1,7 +1,9 @@
+import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
+import { promisify } from 'node:util'
 import { DEFAULT_AGENT_INSTRUCTIONS, MESSAGE_TAG, type Settings } from '../shared/settings'
 
 /**
@@ -48,6 +50,16 @@ const ASK_TIMEOUT_MS = Number(process.env.FW_ASK_TIMEOUT_MS) || 10 * 60_000
 const secret = randomUUID()
 const agents = new Map<string, AgentInfo>()
 const status = new Map<string, 'working' | 'idle'>()
+/**
+ * Claude sessions whose CLI has started (SessionStart hook). Until then, text typed into the
+ * terminal would land in the shell, so messages to a session wait for it (see whenReady).
+ */
+const ready = new Set<string>()
+const readyWaiters = new Map<string, (() => void)[]>()
+const READY_TIMEOUT_MS = Number(process.env.FW_READY_TIMEOUT_MS) || 60_000
+/** Sessions each session opened with open_session, to cap it. */
+const spawned = new Map<string, number>()
+const MAX_SPAWNED = 3
 let asks: Ask[] = []
 let port = 0
 let host: Host
@@ -98,7 +110,13 @@ export async function claudeArgs(nodeId: string, sessionId?: string): Promise<st
   if (!UUID.test(nodeId)) return ''
   const dir = path.join(host.dataDir, 'hooks')
   const base = `http://127.0.0.1:${port}`
-  const hook = [{ hooks: [{ type: 'http', url: `${base}/hook/${secret}/${nodeId}` }] }]
+  const url = `${base}/hook/${secret}/${nodeId}`
+  const hook = [{ hooks: [{ type: 'http', url }] }]
+  // SessionStart doesn't fire for HTTP hooks; as a command hook it does. curl.exe ships with
+  // Windows 10+, and the bare `curl` in Windows PowerShell would be an Invoke-WebRequest alias.
+  const curl = process.platform === 'win32' ? 'curl.exe' : 'curl'
+  const startHook = [{ hooks: [{ type: 'command', command: `${curl} -s -X POST --data-binary @- ${url}` }] }]
+  ready.delete(nodeId) // (re)launching: not ready until its SessionStart arrives
   const mcp = host.settings().agentMcp
   await fs.mkdir(dir, { recursive: true })
   // Forward slashes: valid on Windows and safe inside double quotes in PowerShell, cmd and bash.
@@ -108,7 +126,7 @@ export async function claudeArgs(nodeId: string, sessionId?: string): Promise<st
     return `"${p.replace(/\\/g, '/')}"`
   }
   let args = ` --settings ${await file(`${nodeId}.json`, {
-    hooks: { UserPromptSubmit: hook, Stop: hook },
+    hooks: { SessionStart: startHook, UserPromptSubmit: hook, Stop: hook },
     // The user wired the sessions together and the canvas is theirs to look at: no prompt for
     // these. open_terminal is left out on purpose — it runs a command, so Claude Code asks
     // first, as it would for its own Bash tool.
@@ -129,6 +147,11 @@ function onHook(nodeId: string, p: Record<string, unknown>): void {
   const event = String(p.hook_event_name ?? '')
   if (!UUID.test(sessionId)) return
   status.set(nodeId, event === 'UserPromptSubmit' ? 'working' : 'idle')
+  if (event === 'SessionStart') {
+    ready.add(nodeId)
+    for (const wake of readyWaiters.get(nodeId) ?? []) wake()
+    readyWaiters.delete(nodeId)
+  }
   host.send(`agent:event:${nodeId}`, { sessionId, event })
 
   if (event === 'UserPromptSubmit') {
@@ -153,6 +176,15 @@ function settle(ask: Ask, text: string): void {
 const name = (id: string) => agents.get(id)?.title ?? id
 
 /** Types a message into a session's terminal as a bracketed paste, then submits it. */
+/** Resolves true once the session's CLI is up (immediately if it already is). */
+function whenReady(nodeId: string): Promise<boolean> {
+  if (ready.has(nodeId)) return Promise.resolve(true)
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(ready.has(nodeId)), READY_TIMEOUT_MS)
+    readyWaiters.set(nodeId, [...(readyWaiters.get(nodeId) ?? []), () => (clearTimeout(timer), resolve(true))])
+  })
+}
+
 function deliver(nodeId: string, text: string): boolean {
   // No escape bytes: the text comes from a model and must not be able to drive the terminal.
   const ok = host.write(nodeId, `\x1b[200~${text.replace(/\x1b/g, '')}\x1b[201~`)
@@ -185,14 +217,15 @@ function listSessions(fromId: string): string {
 }
 
 /** Resolves with the tool's text result. `onCancel` hands back what to call if the caller goes away. */
-function ask(fromId: string, to: AgentInfo, message: string, onCancel: (fn: () => void) => void): Promise<string> {
+async function ask(fromId: string, to: AgentInfo, message: string, onCancel: (fn: () => void) => void): Promise<string> {
   // A waits on B while B waits on A: neither turn can end. Refuse the second leg.
   if (asks.some((a) => a.from === to.id && a.to === fromId && a.reply))
     return Promise.resolve(`"${to.title}" está esperando a SUA resposta agora. Responda no texto final do seu turno em vez de perguntar de volta.`)
 
   const pending: Ask = { token: `${MESSAGE_TAG} ${randomUUID().slice(0, 8)}`, from: fromId, to: to.id, started: false, reply: null }
   const header = `[${pending.token}] Mensagem da sessão "${name(fromId)}". Ela está esperando: o texto final do seu turno será devolvido a ela.`
-  if (!deliver(to.id, `${header}\n\n${message}`)) return Promise.resolve(`A sessão "${to.title}" não está rodando.`)
+  if (!(await whenReady(to.id))) return `A sessão "${to.title}" não terminou de iniciar a tempo. Tente de novo em instantes.`
+  if (!deliver(to.id, `${header}\n\n${message}`)) return `A sessão "${to.title}" não está rodando.`
 
   asks.push(pending)
   host.send('agent:activity', { from: fromId, to: to.id, pending: true })
@@ -245,7 +278,7 @@ const TOOLS = [
 // Let a session put things in front of the user, next to itself on the canvas. The renderer
 // that owns the session's workspace does the placing (see Canvas.tsx, `canvas:open`).
 
-const CANVAS_TOOLS = [
+const CANVAS_TOOLS: { name: string; description: string; inputSchema: object }[] = [
   {
     name: 'open_file',
     description:
@@ -289,6 +322,26 @@ const CANVAS_TOOLS = [
     }
   }
 ]
+const OPEN_SESSION_TOOL = {
+  name: 'open_session',
+  description:
+    'Abre uma nova sessão Claude Code no canvas, já conectada a você. Use SOMENTE quando o usuário pedir explicitamente para delegar ou paralelizar trabalho numa nova sessão. ' +
+    `Limites: no máximo ${MAX_SPAWNED} por sessão; o diretório precisa ser o seu (ou uma subpasta) ou uma worktree do mesmo repositório; effort medium ou high. ` +
+    'O usuário confirma antes. Passe a tarefa em `task` ou depois com ask_session/send_message (eles esperam a nova sessão terminar de iniciar).',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      title: { type: 'string', description: 'Nome curto da sessão no canvas.' },
+      role: { type: 'string', description: 'O que ela vai fazer (as sessões conectadas veem isso).' },
+      cwd: { type: 'string', description: 'Diretório; padrão: o desta sessão. Relativo a ele ou absoluto.' },
+      effort: { type: 'string', enum: ['medium', 'high'], description: 'Padrão: medium.' },
+      task: { type: 'string', description: 'Opcional: a primeira mensagem para a nova sessão, entregue assim que ela estiver pronta. Autossuficiente.' }
+    },
+    required: ['title', 'role']
+  }
+}
+CANVAS_TOOLS.push(OPEN_SESSION_TOOL)
+// open_terminal and open_session are left out: they start processes, so Claude Code asks first.
 const PRE_ALLOWED = ['list_sessions', 'ask_session', 'send_message', 'open_file', 'create_note', 'create_todo']
 const CANVAS_TOOL_NAMES = new Set(CANVAS_TOOLS.map((t) => t.name))
 
@@ -297,6 +350,7 @@ type CanvasItem =
   | { type: 'note'; text: string; title?: string }
   | { type: 'todo'; title: string; items: string[] }
   | { type: 'terminal'; title: string; cwd?: string; command?: string }
+  | { type: 'session'; id: string; title: string; role: string; cwd: string; command: string }
 
 /** Validates a canvas tool call and hands it to the renderer; returns the tool's text reply. */
 async function canvasTool(nodeId: string, tool: string, a: Record<string, unknown>): Promise<[string, boolean]> {
@@ -317,14 +371,63 @@ async function canvasTool(nodeId: string, tool: string, a: Record<string, unknow
     const items = Array.isArray(a.items) ? a.items.map(str).filter(Boolean) : []
     if (!items.length) return ['Informe ao menos uma tarefa.', true]
     item = { type: 'todo', title: str(a.title) || 'ToDo', items }
+  } else if (tool === 'open_session') {
+    const made = spawned.get(nodeId) ?? 0
+    if (made >= MAX_SPAWNED) return [`Limite atingido: esta sessão já abriu ${MAX_SPAWNED} sessões.`, true]
+    const effort = str(a.effort) || 'medium'
+    if (effort !== 'medium' && effort !== 'high') return ['effort precisa ser medium ou high.', true]
+    if (!str(a.title) || !str(a.role)) return ['Informe title e role.', true]
+    const cwd = within(str(a.cwd))
+    const st = await fs.stat(cwd).catch(() => null)
+    if (!st?.isDirectory()) return [`Diretório não encontrado: ${cwd}`, true]
+    if (!(await sameProject(me.cwd ?? '', cwd)))
+      return [`Fora do permitido: use o seu diretório (${me.cwd}), uma subpasta dele ou uma worktree do mesmo repositório.`, true]
+    spawned.set(nodeId, made + 1)
+    // FW_CLAUDE_BIN lets the e2e test stand in for the real CLI.
+    const command = `${process.env.FW_CLAUDE_BIN || 'claude'} --effort ${effort}`
+    // The id is chosen here so the task can be delivered to that node once it's up.
+    item = { type: 'session', id: randomUUID(), title: str(a.title), role: str(a.role), cwd, command }
+    const task = str(a.task)
+    if (task) {
+      const id = item.id
+      whenReady(id).then((isReady) => isReady && deliver(id, `[${MESSAGE_TAG}] Tarefa da sessão "${name(nodeId)}", que abriu você.\n\n${task}`))
+    }
   } else {
+    // A `claude` started this way is a plain terminal to the app: no hooks, no MCP, nothing
+    // to connect to. That's what open_session is for.
+    if (/^\s*(npx\s+(-y\s+)?@anthropic-ai\/claude-code|claude(\.exe|\.cmd)?)(\s|$)/i.test(str(a.command)))
+      return ['Para abrir uma sessão de IA use open_session: um terminal rodando claude não fica conectado nem recebe estas ferramentas.', true]
     const cwd = within(str(a.cwd))
     const st = await fs.stat(cwd).catch(() => null)
     if (!st?.isDirectory()) return [`Diretório não encontrado: ${cwd}`, true]
     item = { type: 'terminal', title: str(a.title) || 'Terminal', cwd, command: str(a.command) || undefined }
   }
   host.send(`canvas:open:${me.workspaceId}`, { from: nodeId, item })
+  if (item.type === 'session')
+    return [
+      `Sessão "${item.title}" aberta em ${item.cwd} e conectada a você.` +
+        (str(a.task) ? ' A tarefa será entregue assim que ela iniciar.' : ' Ela leva alguns segundos para iniciar; ask_session e send_message esperam por isso.'),
+      false
+    ]
   return ['Pronto: aberto no canvas, ao lado desta sessão.', false]
+}
+
+const gitDir = async (dir: string) => {
+  try {
+    const { stdout } = await promisify(execFile)('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: dir, windowsHide: true })
+    return path.resolve(stdout.trim()).toLowerCase()
+  } catch {
+    return null
+  }
+}
+
+/** `dir` is `base` or inside it, or a worktree of the same repository as `base`. */
+async function sameProject(base: string, dir: string): Promise<boolean> {
+  if (!base) return false
+  const rel = path.relative(path.resolve(base), path.resolve(dir))
+  if (!rel.startsWith('..') && !path.isAbsolute(rel)) return true
+  const [a, b] = await Promise.all([gitDir(base), gitDir(dir)])
+  return !!a && a === b
 }
 
 function instructions(nodeId: string): string {
@@ -373,8 +476,11 @@ function onMcp(nodeId: string, msg: Record<string, unknown>, res: http.ServerRes
   if (!message) return void json(text('Mensagem vazia.', true))
 
   if (params.name === 'send_message') {
-    const ok = deliver(target.id, `[${MESSAGE_TAG}] Aviso da sessão "${name(nodeId)}" (ela não espera resposta).\n\n${message}`)
-    return void json(text(ok ? `Entregue a "${target.title}".` : `A sessão "${target.title}" não está rodando.`, !ok))
+    whenReady(target.id).then((isReady) => {
+      const ok = isReady && deliver(target.id, `[${MESSAGE_TAG}] Aviso da sessão "${name(nodeId)}" (ela não espera resposta).\n\n${message}`)
+      json(text(ok ? `Entregue a "${target.title}".` : `A sessão "${target.title}" não está pronta ou não está rodando.`, !ok))
+    })
+    return
   }
 
   // ask_session can outlive HTTP header timeouts: answer as an SSE stream and keep it warm.

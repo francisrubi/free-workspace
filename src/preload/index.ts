@@ -3,15 +3,20 @@ import os from 'node:os'
 
 import type { Settings, SidebarLayout } from '../shared/settings'
 
+export type GitInfo = { branch: string; worktree: boolean; root: string; worktrees: { path: string; branch: string }[] }
+
 type CanvasItem =
   | { type: 'file'; path: string }
   | { type: 'note'; text: string; title?: string }
   | { type: 'todo'; title: string; items: string[] }
   | { type: 'terminal'; title: string; cwd?: string; command?: string }
+  | { type: 'session'; id: string; title: string; role: string; cwd: string; command: string }
 
 const api = {
   /** Running under test/e2e.cjs: exposes internals the test inspects. */
   isTest: !!process.env.FW_TEST,
+  /** The Claude Code command; FW_CLAUDE_BIN lets the e2e test stand in for the real CLI. */
+  claudeBin: process.env.FW_CLAUDE_BIN || 'claude',
   /** Windows build number (e.g. 26200), 0 elsewhere. node-pty uses ConPTY on Windows. */
   windowsBuild: process.platform === 'win32' ? Number(os.release().split('.')[2]) || 0 : 0,
   ws: {
@@ -20,6 +25,8 @@ const api = {
     update: (id: string, patch: { name?: string; cwd?: string; deletedAt?: string | null }) => ipcRenderer.invoke('ws:update', id, patch),
     delete: (id: string) => ipcRenderer.invoke('ws:delete', id) as Promise<void>,
     importImage: (id: string, file: string) => ipcRenderer.invoke('ws:importImage', id, file) as Promise<string>,
+    appendNode: (id: string, node: unknown) => ipcRenderer.invoke('ws:appendNode', id, node) as Promise<void>,
+    copyAsset: (src: string, toWorkspace: string) => ipcRenderer.invoke('ws:copyAsset', src, toWorkspace) as Promise<string>,
     load: (id: string) => ipcRenderer.invoke('ws:load', id),
     save: (id: string, data: unknown) => ipcRenderer.invoke('ws:save', id, data),
     saveImage: (id: string, bytes: Uint8Array, ext: string) => ipcRenderer.invoke('ws:saveImage', id, bytes, ext)
@@ -54,7 +61,7 @@ const api = {
     openDir: (defaultPath?: string) => ipcRenderer.invoke('dialog:openDir', defaultPath) as Promise<string | null>
   },
   git: {
-    info: (cwd: string) => ipcRenderer.invoke('git:info', cwd) as Promise<{ branch: string; worktree: boolean } | null>,
+    info: (cwd: string) => ipcRenderer.invoke('git:info', cwd) as Promise<GitInfo | null>,
     branches: (repoDir: string, fetch = false) =>
       ipcRenderer.invoke('git:branches', repoDir, fetch) as Promise<{ current: string; branches: string[] }>,
     addWorktree: (repoDir: string, branch: string, base?: string) =>
@@ -84,6 +91,7 @@ const api = {
     return () => void ipcRenderer.removeListener(`canvas:open:${workspaceId}`, l)
   },
   homedir: () => ipcRenderer.invoke('app:homedir') as Promise<string>,
+  hasCommand: (name: string) => ipcRenderer.invoke('app:hasCommand', name) as Promise<boolean>,
   pty: {
     open: (opts: { id: string; workspaceId: string; cwd?: string; command?: string; claude?: { sessionId?: string }; cols: number; rows: number }) =>
       ipcRenderer.invoke('pty:open', opts) as Promise<{ replay: string }>,
@@ -91,6 +99,7 @@ const api = {
     resize: (id: string, cols: number, rows: number) => ipcRenderer.send('pty:resize', id, cols, rows),
     kill: (id: string) => ipcRenderer.send('pty:kill', id),
     killWorkspace: (workspaceId: string) => ipcRenderer.send('pty:killWorkspace', workspaceId),
+    setWorkspace: (id: string, workspaceId: string) => ipcRenderer.send('pty:setWorkspace', id, workspaceId),
     onData: (id: string, cb: (d: string) => void) => {
       const l = (_: unknown, d: string) => cb(d)
       ipcRenderer.on(`pty:data:${id}`, l)

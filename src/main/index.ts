@@ -20,18 +20,24 @@ const WS_DIR = path.join(DATA_DIR, 'workspaces')
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json')
 let settings: Settings = DEFAULT_SETTINGS
 
+/** Writes still in flight; quitting waits for them (see will-quit). */
+const pendingWrites = new Set<Promise<unknown>>()
+function tracked<T>(work: Promise<T>): Promise<T> {
+  pendingWrites.add(work)
+  work.finally(() => pendingWrites.delete(work)).catch(() => {})
+  return work
+}
+
 ipcMain.handle('settings:get', () => settings)
 
 const SIDEBAR_FILE = path.join(DATA_DIR, 'sidebar.json')
 ipcMain.handle('sidebar:get', () => readJson<SidebarLayout>(SIDEBAR_FILE, EMPTY_LAYOUT))
-ipcMain.handle('sidebar:set', async (_e, layout: SidebarLayout) => {
-  await fs.mkdir(DATA_DIR, { recursive: true })
-  await fs.writeFile(SIDEBAR_FILE, JSON.stringify(layout, null, 2))
-})
+ipcMain.handle('sidebar:set', (_e, layout: SidebarLayout) =>
+  tracked(fs.mkdir(DATA_DIR, { recursive: true }).then(() => fs.writeFile(SIDEBAR_FILE, JSON.stringify(layout, null, 2))))
+)
 ipcMain.handle('settings:set', async (_e, patch: Partial<Settings>) => {
   settings = { ...settings, ...patch }
-  await fs.mkdir(DATA_DIR, { recursive: true })
-  await fs.writeFile(SETTINGS_FILE, JSON.stringify(settings, null, 2))
+  await tracked(fs.mkdir(DATA_DIR, { recursive: true }).then(() => fs.writeFile(SETTINGS_FILE, JSON.stringify(settings, null, 2))))
   return settings
 })
 
@@ -141,7 +147,7 @@ async function purgeTrash(): Promise<void> {
 ipcMain.handle('ws:update', async (_e, id: string, patch: Partial<WorkspaceMeta>) => {
   const file = path.join(WS_DIR, id, 'workspace.json')
   const meta = await readJson<WorkspaceMeta>(file, { id, name: 'Workspace', createdAt: new Date().toISOString() })
-  await fs.writeFile(file, JSON.stringify({ ...meta, ...patch, id }, null, 2))
+  await tracked(fs.writeFile(file, JSON.stringify({ ...meta, ...patch, id }, null, 2)))
 })
 // Only a missing file means "empty canvas". A corrupt one must fail loudly: loading it as
 // empty would let the autosave overwrite the user's canvas.
@@ -154,13 +160,23 @@ ipcMain.handle('ws:load', async (_e, id: string) => {
   }
 })
 ipcMain.handle('ws:save', (_e, id: string, data: unknown) =>
-  fs.writeFile(path.join(WS_DIR, id, 'canvas.json'), JSON.stringify(data, null, 2))
+  tracked(fs.writeFile(path.join(WS_DIR, id, 'canvas.json'), JSON.stringify(data, null, 2)))
+)
+/** Adds a node to a workspace that isn't loaded (on stand-by): straight into its canvas.json. */
+ipcMain.handle('ws:appendNode', (_e, id: string, node: unknown) =>
+  tracked(
+    (async () => {
+      const file = path.join(workspaceDir(id), 'canvas.json')
+      const canvas = await readJson<{ nodes: unknown[]; edges?: unknown[]; viewport?: unknown }>(file, { nodes: [], viewport: { x: 0, y: 0, zoom: 1 } })
+      await fs.writeFile(file, JSON.stringify({ ...canvas, nodes: [...canvas.nodes, node] }, null, 2))
+    })()
+  )
 )
 ipcMain.handle('ws:saveImage', async (_e, id: string, bytes: Uint8Array, ext: string) => {
   const name = `${Date.now()}-${randomUUID().slice(0, 8)}.${ext}`
   const dir = path.join(WS_DIR, id, 'assets')
   await fs.mkdir(dir, { recursive: true })
-  await fs.writeFile(path.join(dir, name), bytes)
+  await tracked(fs.writeFile(path.join(dir, name), bytes))
   return `fwasset://${id}/${name}`
 })
 
@@ -190,7 +206,15 @@ ipcMain.handle('ws:importImage', async (_e, id: string, file: string) => {
   await fs.copyFile(file, path.join(dir, name))
   return `fwasset://${id}/${name}`
 })
-ipcMain.handle('file:write', (_e, p: string, content: string) => fs.writeFile(p, content, 'utf8'))
+/** Copies a pasted image into another workspace's assets (a moved image node takes it along). */
+ipcMain.handle('ws:copyAsset', async (_e, src: string, toWorkspace: string) => {
+  const dir = path.join(workspaceDir(toWorkspace), 'assets')
+  const name = path.basename(assetPath(src))
+  await fs.mkdir(dir, { recursive: true })
+  await tracked(fs.copyFile(assetPath(src), path.join(dir, name)))
+  return `fwasset://${toWorkspace}/${name}`
+})
+ipcMain.handle('file:write', (_e, p: string, content: string) => tracked(fs.writeFile(p, content, 'utf8')))
 ipcMain.handle('file:rename', async (_e, from: string, to: string) => {
   // fs.rename silently replaces an existing target on Windows; refuse instead.
   if (await fs.stat(to).then(() => true, () => false)) throw new Error(`Já existe: ${to}`)
@@ -233,15 +257,38 @@ const git = async (cwd: string, ...args: string[]) =>
   (await run('git', args, { cwd, windowsHide: true })).stdout.trim()
 const gitError = (e: unknown) => ((e as { stderr?: string }).stderr || (e as Error).message).trim()
 
+/**
+ * Branch of `cwd`, whether it's a linked worktree, the checkout's root, and every worktree of
+ * the repository (so a terminal's menu can open an explorer in any of them).
+ */
 ipcMain.handle('git:info', async (_e, cwd: string) => {
   try {
-    const [branch, gitDir, commonDir] = (
-      await git(cwd, 'rev-parse', '--path-format=absolute', '--abbrev-ref', 'HEAD', '--git-dir', '--git-common-dir')
+    const [branch, gitDir, commonDir, root] = (
+      await git(cwd, 'rev-parse', '--path-format=absolute', '--abbrev-ref', 'HEAD', '--git-dir', '--git-common-dir', '--show-toplevel')
     ).split(/\r?\n/)
-    return { branch: branch === 'HEAD' ? 'HEAD solto' : branch, worktree: path.resolve(gitDir) !== path.resolve(commonDir) }
+    const worktrees = (await git(cwd, 'worktree', 'list', '--porcelain'))
+      .split(/\r?\n\r?\n/)
+      .filter((block) => !/^bare$/m.test(block)) // the bare repo itself, if any, isn't a checkout
+      .map((block) => ({
+        path: path.resolve(/^worktree (.+)$/m.exec(block)?.[1] ?? ''),
+        branch: /^branch refs\/heads\/(.+)$/m.exec(block)?.[1] ?? (/^detached$/m.test(block) ? 'HEAD solto' : '')
+      }))
+      .filter((w) => w.path)
+    return {
+      branch: branch === 'HEAD' ? 'HEAD solto' : branch,
+      worktree: path.resolve(gitDir) !== path.resolve(commonDir),
+      root: path.resolve(root),
+      worktrees
+    }
   } catch {
     return null // not a repository (or no commits yet)
   }
+})
+
+/** Whether a program is on the PATH (e.g. lazygit), without running it. */
+ipcMain.handle('app:hasCommand', (_e, name: string) => {
+  if (!/^[\w.-]+$/.test(name)) return false
+  return run(process.platform === 'win32' ? 'where' : 'which', [name], { windowsHide: true }).then(() => true, () => false)
 })
 
 /** Local and remote branches, most recently committed first, plus the one checked out. */
@@ -346,6 +393,12 @@ ipcMain.on('agents:sync', (_e, workspaceId: string, list: AgentInfo[]) => syncAg
 ipcMain.on('pty:killWorkspace', (_e, workspaceId: string) => {
   for (const [id, s] of sessions) if (s.workspaceId === workspaceId) kill(id)
 })
+// A node moved to another workspace keeps its process; it now belongs to (and goes on
+// stand-by with) the new one.
+ipcMain.on('pty:setWorkspace', (_e, id: string, workspaceId: string) => {
+  const s = sessions.get(id)
+  if (s) s.workspaceId = workspaceId
+})
 
 app.whenReady().then(async () => {
   settings = { ...DEFAULT_SETTINGS, ...(await readJson<Partial<Settings>>(SETTINGS_FILE, {})) }
@@ -372,4 +425,18 @@ function killAllTerminals(): void {
 app.on('window-all-closed', () => {
   killAllTerminals()
   app.quit()
+})
+
+// On Windows, node-pty's ConPTY threads sometimes keep the process alive after quitting even
+// with every terminal killed: the window is gone but the app stays in the task list, stuck in
+// native teardown after Node's own "exit". Seen in ~1 of 6 closes with ~10 terminals.
+app.on('will-quit', (e) => {
+  if (pendingWrites.size) {
+    e.preventDefault()
+    Promise.allSettled([...pendingWrites]).then(() => app.quit())
+    return
+  }
+  // Nothing left to save and every terminal is killed. Ending the process here skips the
+  // native teardown where it hangs (no JS runs there anymore, so a timer can't help).
+  if (process.platform === 'win32') process.kill(process.pid, 'SIGKILL')
 })
