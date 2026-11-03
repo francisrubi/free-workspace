@@ -60,6 +60,66 @@ const MODULES = {
       )
     }
   },
+  features: {
+    env: { FW_CLAUDE_BIN: 'echo claude' },
+    seed(dir) {
+      const SESSION = '11111111-1111-4111-8111-111111111111'
+      writeFileSync(path.join(dir, 'watch.txt'), 'versao 1\n')
+      writeFileSync(path.join(dir, 'pinned.txt'), 'fixado\n')
+      // The test's server port replaces PORT at run time.
+      writeFileSync(
+        path.join(dir, 'api.http'),
+        '@base = http://127.0.0.1:PORT\n@token = abc\n\n### Listar\nGET {{base}}/items\nAuthorization: Bearer {{token}}\n\n###\n# @name criar\nPOST {{base}}/items\nContent-Type: application/json\n\n{"nome": "x"}\n\n### Quebrada\nGET {{base}}/{{naoExiste}}\n'
+      )
+      const ws = workspace(dir, 'test', 'Teste', {
+        nodes: [
+          terminal('held', 'Parado', dir, 'echo HELD_CMD', { data: { started: true } }),
+          terminal('fresh', 'Novo', dir, 'echo FRESH_CMD', { position: { x: 700, y: 0 } }),
+          terminal('incmd', 'Cmd', dir, 'echo SHELL=%COMSPEC%', { position: { x: 1400, y: 0 }, data: { shell: 'cmd.exe' } }),
+          { id: 'f1', type: 'file', position: { x: 0, y: 400 }, width: 600, height: 300, data: { path: path.join(dir, 'watch.txt') } },
+          { id: 'http', type: 'file', position: { x: 700, y: 400 }, width: 600, height: 500, data: { path: path.join(dir, 'api.http') } },
+          session(SESSION, 'Sessao', dir, 'S_CMD', { started: false }, { position: { x: 1400, y: 400 }, height: 400 }),
+          // Below the spot where the session opens its pinned file, which would cover their dots.
+          { id: 'n1', type: 'note', position: { x: 2100, y: 1000 }, width: 300, height: 200, data: { text: '# Plano\n\npasso 1' } },
+          { id: 'n2', type: 'note', position: { x: 2100, y: 1300 }, width: 300, height: 200, data: { text: '# Solta' } },
+          { id: 'td', type: 'todo', position: { x: 2500, y: 1000 }, width: 300, height: 300, data: { title: 'Lista', items: [{ id: 'i1', text: 'revisar', done: false }, { id: 'i2', text: 'testar', done: true }] } }
+        ],
+        edges: [
+          { id: 'e1', source: SESSION, target: 'n1', sourceHandle: 'r', targetHandle: 'l' },
+          { id: 'e2', source: SESSION, target: 'td', sourceHandle: 'r', targetHandle: 'l' }
+        ]
+      })
+      writeFileSync(path.join(ws, '..', '..', 'settings.json'), JSON.stringify({ autoRestart: false }))
+    }
+  },
+  filetypes: {
+    seed(dir) {
+      const write = (name, text) => writeFileSync(path.join(dir, name), text)
+      write('doc.md', '# Titulo MD\n\n<img src="x" onerror="window.__xss = true">\n\n[fora](https://exemplo.test/a) [local](outro.md)\n')
+      write('dados.json', '{"id":12345678901234567890,"b":1,"2":[1,{"x":null}],"vazio":{},"texto":"a:b,{c}"}')
+      write('ruim.json', '{ // comentario\n"a": 1 }')
+      write('package.json', '{\n  "name": "x",\n  "scripts": {\n    "ola": "echo SAIDA_SCRIPT",\n    "$(perigo)": "echo nao"\n  },\n  "other": {\n    "naoscript": "1"\n  }\n}\n')
+      write('tarefa.ps1', 'Write-Output "SAIDA_PS1"\n')
+      write('tarefa.bat', '@echo SAIDA_BAT\n')
+      write('tarefa.sh', 'echo SAIDA_SH\n')
+      write('pagina.html', '<h1>oi</h1>\n')
+      write('muda.txt', 'linha igual\nminha linha\n')
+      const file = (id, name, x, y) => ({ id, type: 'file', position: { x, y }, width: 500, height: 260, data: { path: path.join(dir, name) } })
+      workspace(dir, 'test', 'Teste', {
+        nodes: [
+          file('md', 'doc.md', 0, 0),
+          file('json', 'dados.json', 600, 0),
+          file('ruim', 'ruim.json', 1200, 0),
+          file('pkg', 'package.json', 0, 400),
+          file('ps1', 'tarefa.ps1', 600, 400),
+          file('bat', 'tarefa.bat', 1200, 400),
+          file('sh', 'tarefa.sh', 0, 800),
+          file('html', 'pagina.html', 600, 800),
+          file('muda', 'muda.txt', 1200, 800)
+        ]
+      })
+    }
+  },
   git: {
     seed(dir) {
       const r = repo(dir)

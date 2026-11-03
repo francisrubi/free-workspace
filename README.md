@@ -32,6 +32,15 @@ and a screenshot tool.
   also move to another workspace. Either way, running terminals and sessions keep going.
 - **Comfortable prompting** — a text box under the selected terminal for writing multi-line
   prompts (Shift+Enter for a new line).
+- **Your choice of shell** — each terminal can open in PowerShell, cmd, Git Bash, WSL… And in
+  Settings you can make reopened terminals and sessions wait for Enter instead of running
+  their command.
+- **Files that know they changed** — an open file shows when there's a new version on disk (and
+  which session changed it), saving over it asks first, and you can compare both versions.
+- **Actions per file type** — each request in a `.http`/`.rest` file gets a send button, with
+  the response shown in the node (supports `@name = value` variables, `{{$guid}}` and
+  `{{$timestamp}}`). `package.json` scripts and `.sh`/`.ps1`/`.bat` files run in a terminal with
+  one click, `.md` has a preview, `.json` a formatter, and `.html`/`.svg` open in the browser.
 
 <!-- IMAGE: two connected AI sessions, the link between them animated while one waits for
      the other's answer. Suggested path: docs/images/sessions.png -->
@@ -51,10 +60,17 @@ the app (localhost only, nothing to install). It gives the session these tools:
 | `create_todo` | Creates a to-do list on the canvas. |
 | `open_terminal` | Opens a terminal on the canvas, optionally running a command. Asks for your confirmation first. |
 | `open_session` | Opens a new Claude Code session, already connected to the caller. Only when you ask to delegate; limited to the caller's folder or a worktree of the same repo, `medium`/`high` effort, 3 per session, and asks for your confirmation. |
+| `save_snippet` | Saves a command or text to the session's list, to copy with one click. Can be turned off in Settings. |
+| `pin_file` | Saves a main changed file to the session's list, to open on the canvas with one click. Can be turned off in Settings. |
+| `list_elements` | Lists the notes and to-do lists connected to this session. |
+| `read_element` | Reads a connected note or to-do list. |
+| `write_note` | Appends to or replaces the text of a connected note. |
+| `update_todo` | Adds items to a connected to-do list and checks or unchecks them. |
 
-Sessions only see the sessions you've connected to them by dragging a link between them. Each
-session can have a role describing what it's for, and the instructions sent to all sessions
-are editable in Settings.
+Sessions only see the sessions, notes and to-do lists you've connected to them by dragging a
+link between them, and they only touch notes and to-do lists when you ask. Each session can
+have a role describing what it's for, and the instructions sent to all sessions are editable
+in Settings.
 
 <!-- IMAGE: a session that used create_note / create_todo, with the note and the list it
      created next to it. Suggested path: docs/images/canvas-tools.png -->
@@ -88,7 +104,7 @@ npm run test:e2e
 ```
 
 Launches the real app on throwaway data and drives it with real mouse and keyboard events.
-The suite is split into modules — `canvas`, `sessions`, `git`, `sidebar`, `layout`, `close` —
+The suite is split into modules — `canvas`, `sessions`, `features`, `filetypes`, `git`, `sidebar`, `layout`, `close` —
 each with its own data, so you can run only what you touched:
 
 ```bash

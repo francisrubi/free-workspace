@@ -213,6 +213,58 @@ input[type='color'].unset { opacity: 0.35; }
 /* move dialog */
 .fw-move-list { display: flex; flex-direction: column; gap: 2px; max-height: 300px; overflow-y: auto; }
 
+/* file node: notices, editor, .http results */
+.fw-file { height: 100%; display: flex; flex-direction: column; }
+.fw-file-editor { flex: 1; min-height: 0; }
+.fw-file-notice { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; flex-shrink: 0; padding: 5px 10px; font-size: 12px; background: #2b2619; border-bottom: 1px solid #e0af68; }
+.fw-file-notice span { flex: 1; min-width: 160px; }
+.fw-file-notice button { padding: 1px 8px; font-size: 12px; }
+.fw-file-notice.conflict { background: #2a1d22; border-bottom-color: #f7768e; }
+.fw-node-actions button.fw-stale { color: #e0af68; border-color: #e0af68; }
+.fw-http-send { padding: 6px 0 2px; font-family: 'Segoe UI', system-ui, sans-serif; }
+.fw-http-send button { padding: 0 8px; font-size: 11px; color: #9ece6a; background: transparent; border-color: transparent; }
+.fw-http-send button:hover { border-color: #9ece6a !important; background: transparent !important; }
+.fw-http-result { flex: 0 0 45%; min-height: 0; display: flex; flex-direction: column; border-top: 1px solid var(--border-strong); }
+.fw-http-head { display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding: 3px 6px 3px 10px; font-size: 12px; background: #20242c; }
+.fw-http-head button { padding: 0 7px; background: transparent; border-color: transparent; }
+.fw-http-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fw-http-status { font-weight: 600; }
+.fw-http-status.s2 { color: #9ece6a; }
+.fw-http-status.s3 { color: #7dcfff; }
+.fw-http-status.s4, .fw-http-status.s5 { color: #f7768e; }
+.fw-http-body { flex: 1; min-height: 0; overflow: auto; padding: 6px 10px; font-size: 12px; user-select: text; }
+.fw-http-body pre { margin: 4px 0; font-family: 'Cascadia Mono', Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
+.fw-http-error { color: #f7768e; white-space: pre-wrap; }
+
+.cm-line .fw-script-run { margin-left: 8px; padding: 0 5px; font-size: 10px; line-height: 14px; color: #9ece6a; background: transparent; border-color: transparent; }
+.cm-line .fw-script-run:hover { border-color: #9ece6a !important; background: transparent !important; }
+.fw-file-editor > .fw-markdown { user-select: text; }
+.fw-diff { height: 100%; display: flex; flex-direction: column; }
+.fw-diff > .fw-editor { flex: 1; min-height: 0; }
+.fw-diff-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-shrink: 0; padding: 3px 6px 3px 10px; font-size: 12px; background: #20242c; }
+.fw-diff-head button { padding: 0 8px; font-size: 12px; }
+.fw-diff-mine { color: #f7768e; }
+.fw-diff-disk { color: #9ece6a; }
+
+/* settings: menu on the left, a fixed size so switching tabs doesn't make it jump */
+.fw-modal.fw-settings { width: min(760px, 92vw); height: min(560px, 90vh); overflow: hidden; }
+.fw-settings-main { flex: 1; min-height: 0; display: flex; gap: 16px; }
+.fw-settings-nav { width: 140px; flex-shrink: 0; display: flex; flex-direction: column; gap: 2px; padding-right: 12px; border-right: 1px solid var(--border); }
+.fw-settings-nav button { text-align: left; background: transparent; border-color: transparent; }
+.fw-settings-nav button.active { background: #2a2f3a; border-color: var(--border); }
+.fw-settings-pane { flex: 1; min-width: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding-right: 6px; }
+
+/* what a session saved for the user */
+.fw-node-actions button.fw-panel-toggle { color: var(--accent); }
+.fw-session-panel { position: absolute; top: 0; right: 0; bottom: 0; z-index: 4; width: min(380px, 85%); overflow-y: auto; padding: 4px 8px 8px; background: var(--panel); border-left: 1px solid var(--border-strong); box-shadow: -6px 0 16px rgba(0, 0, 0, 0.35); }
+.fw-panel-head { margin-top: 6px; padding: 2px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.fw-panel-item { display: flex; align-items: flex-start; gap: 4px; padding: 4px 0; border-top: 1px solid var(--border); font-size: 12px; }
+.fw-panel-main { flex: 1; min-width: 0; }
+.fw-panel-item code { display: block; font-family: 'Cascadia Mono', Consolas, monospace; white-space: pre-wrap; word-break: break-all; max-height: 120px; overflow-y: auto; user-select: text; }
+.fw-panel-item > button { padding: 0 6px; font-size: 11px; flex-shrink: 0; }
+.fw-panel-item > button.fw-panel-file { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; padding: 2px 6px; text-align: left; background: transparent; border-color: transparent; }
+.fw-panel-item > button.fw-panel-file:hover { border-color: var(--border-strong); }
+
 /* tab groups */
 .react-flow__node.fw-stack-hidden { visibility: hidden !important; pointer-events: none !important; }
 .fw-tabs { flex: 0 1 auto; min-width: 0; max-width: calc(100% - 90px); margin-right: auto; display: flex; gap: 2px; align-self: stretch; align-items: flex-end; overflow-x: auto; scrollbar-width: none; }

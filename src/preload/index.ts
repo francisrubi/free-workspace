@@ -11,6 +11,18 @@ type CanvasItem =
   | { type: 'todo'; title: string; items: string[] }
   | { type: 'terminal'; title: string; cwd?: string; command?: string }
   | { type: 'session'; id: string; title: string; role: string; cwd: string; command: string }
+  | { type: 'snippet'; text: string; label?: string }
+  | { type: 'pin'; path: string; note?: string }
+
+export type HttpRequest = { method: string; url: string; headers: [string, string][]; body?: string }
+export type HttpResponse =
+  | { status: number; statusText: string; headers: [string, string][]; body: string; truncated: boolean; ms: number; error?: undefined }
+  | { error: string; ms: number; status?: undefined }
+
+export type FileTouched = { path: string; by: string }
+// One IPC listener however many file nodes are open (each adds a callback).
+const touchedListeners = new Set<(e: FileTouched) => void>()
+ipcRenderer.on('file:touched', (_: unknown, e: FileTouched) => touchedListeners.forEach((cb) => cb(e)))
 
 const api = {
   /** Running under test/e2e.cjs: exposes internals the test inspects. */
@@ -42,13 +54,24 @@ const api = {
   file: {
     read: (p: string) => ipcRenderer.invoke('file:read', p) as Promise<string>,
     write: (p: string, content: string) => ipcRenderer.invoke('file:write', p, content),
+    stat: (p: string) => ipcRenderer.invoke('file:stat', p) as Promise<{ mtimeMs: number; size: number } | null>,
+    /** A Claude session's edit tool changed a file (PostToolUse hook). */
+    onTouched: (cb: (e: FileTouched) => void) => {
+      touchedListeners.add(cb)
+      return () => void touchedListeners.delete(cb)
+    },
     rename: (from: string, to: string) => ipcRenderer.invoke('file:rename', from, to) as Promise<void>,
     pathOf: (f: File) => webUtils.getPathForFile(f),
     list: (dir: string) => ipcRenderer.invoke('fs:list', dir) as Promise<{ name: string; path: string; dir: boolean }[]>
   },
+  http: {
+    send: (req: HttpRequest) => ipcRenderer.invoke('http:send', req) as Promise<HttpResponse>
+  },
   shell: {
     showInFolder: (p: string) => ipcRenderer.invoke('shell:showInFolder', p),
-    openInEditor: (p: string) => ipcRenderer.invoke('shell:openInEditor', p)
+    openInEditor: (p: string) => ipcRenderer.invoke('shell:openInEditor', p),
+    openInBrowser: (p: string) => ipcRenderer.invoke('shell:openInBrowser', p) as Promise<void>,
+    openUrl: (url: string) => ipcRenderer.invoke('shell:openUrl', url) as Promise<void>
   },
   clipboard: {
     writeText: (text: string) => ipcRenderer.invoke('clipboard:writeText', text),
@@ -77,6 +100,13 @@ const api = {
     /** Who exists in a workspace and who is connected to whom (drives the MCP tools). */
     sync: (workspaceId: string, list: { id: string; title: string; role?: string; cwd?: string; peers: string[] }[]) =>
       ipcRenderer.send('agents:sync', workspaceId, list),
+    /** A session called a tool on a note/to-do connected to it; answer with elementReply. */
+    onElementRequest: (workspaceId: string, cb: (req: { id: string; from: string; tool: string; args: Record<string, unknown> }) => void) => {
+      const l = (_: unknown, req: { id: string; from: string; tool: string; args: Record<string, unknown> }) => cb(req)
+      ipcRenderer.on(`canvas:element:${workspaceId}`, l)
+      return () => void ipcRenderer.removeListener(`canvas:element:${workspaceId}`, l)
+    },
+    elementReply: (id: string, text: string, isError: boolean) => ipcRenderer.send('agents:elementReply', id, text, isError),
     /** A session started/finished waiting on another one. */
     onActivity: (cb: (a: { from: string; to: string; pending: boolean }) => void) => {
       const l = (_: unknown, a: { from: string; to: string; pending: boolean }) => cb(a)
@@ -92,8 +122,9 @@ const api = {
   },
   homedir: () => ipcRenderer.invoke('app:homedir') as Promise<string>,
   hasCommand: (name: string) => ipcRenderer.invoke('app:hasCommand', name) as Promise<boolean>,
+  shells: () => ipcRenderer.invoke('app:shells') as Promise<{ label: string; path: string }[]>,
   pty: {
-    open: (opts: { id: string; workspaceId: string; cwd?: string; command?: string; claude?: { sessionId?: string }; cols: number; rows: number }) =>
+    open: (opts: { id: string; workspaceId: string; cwd?: string; command?: string; hold?: boolean; shell?: string; claude?: { sessionId?: string }; cols: number; rows: number }) =>
       ipcRenderer.invoke('pty:open', opts) as Promise<{ replay: string }>,
     write: (id: string, data: string) => ipcRenderer.send('pty:write', id, data),
     resize: (id: string, cols: number, rows: number) => ipcRenderer.send('pty:resize', id, cols, rows),

@@ -1,4 +1,4 @@
-import { NodeResizer, useNodesData, useReactFlow } from '@xyflow/react'
+import { Handle, NodeResizer, Position, useNodesData, useReactFlow } from '@xyflow/react'
 import { nodeColor } from '../../../shared/colors'
 import { useState, type ReactNode } from 'react'
 import { useCanvas, useSettings, useStack } from '../context'
@@ -18,6 +18,19 @@ type Props = {
   onRename?: (name: string) => void | Promise<void>
   minWidth?: number
   minHeight?: number
+}
+
+/**
+ * The dots dragged between nodes to connect them (see Canvas `isValidConnection`). Render outside
+ * NodeFrame, whose overflow:hidden would clip them.
+ */
+export function ConnectionDots({ title }: { title: string }) {
+  return (
+    <>
+      <Handle id="l" type="source" position={Position.Left} className="fw-handle" title={title} />
+      <Handle id="r" type="source" position={Position.Right} className="fw-handle" title={title} />
+    </>
+  )
 }
 
 /**

@@ -1,7 +1,7 @@
 import { useReactFlow, type NodeProps } from '@xyflow/react'
 import { useState } from 'react'
 import { uid, type FwNode, type TodoData } from '../types'
-import { NodeFrame } from './NodeFrame'
+import { ConnectionDots, NodeFrame } from './NodeFrame'
 
 type Props = NodeProps<Extract<FwNode, { type: 'todo' }>>
 
@@ -12,6 +12,8 @@ export function TodoNode({ id, data, selected }: Props) {
   const done = data.items.filter((i) => i.done).length
 
   return (
+    <>
+    <ConnectionDots title="Arraste até uma sessão para ela poder ler e marcar este ToDo" />
     <NodeFrame
       id={id}
       selected={selected}
@@ -46,5 +48,6 @@ export function TodoNode({ id, data, selected }: Props) {
         />
       </div>
     </NodeFrame>
+    </>
   )
 }

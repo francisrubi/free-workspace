@@ -112,6 +112,8 @@ export async function claudeArgs(nodeId: string, sessionId?: string): Promise<st
   const base = `http://127.0.0.1:${port}`
   const url = `${base}/hook/${secret}/${nodeId}`
   const hook = [{ hooks: [{ type: 'http', url }] }]
+  // Which session changed which file, for the "new version on disk" notice on open files.
+  const edits = [{ matcher: 'Edit|Write|MultiEdit|NotebookEdit', hooks: [{ type: 'http', url }] }]
   // SessionStart doesn't fire for HTTP hooks; as a command hook it does. curl.exe ships with
   // Windows 10+, and the bare `curl` in Windows PowerShell would be an Invoke-WebRequest alias.
   const curl = process.platform === 'win32' ? 'curl.exe' : 'curl'
@@ -126,7 +128,7 @@ export async function claudeArgs(nodeId: string, sessionId?: string): Promise<st
     return `"${p.replace(/\\/g, '/')}"`
   }
   let args = ` --settings ${await file(`${nodeId}.json`, {
-    hooks: { SessionStart: startHook, UserPromptSubmit: hook, Stop: hook },
+    hooks: { SessionStart: startHook, UserPromptSubmit: hook, Stop: hook, PostToolUse: edits },
     // The user wired the sessions together and the canvas is theirs to look at: no prompt for
     // these. open_terminal is left out on purpose — it runs a command, so Claude Code asks
     // first, as it would for its own Bash tool.
@@ -145,6 +147,14 @@ export async function claudeArgs(nodeId: string, sessionId?: string): Promise<st
 function onHook(nodeId: string, p: Record<string, unknown>): void {
   const sessionId = String(p.session_id ?? '')
   const event = String(p.hook_event_name ?? '')
+  // Mid-turn, so it says nothing about the session's status.
+  if (event === 'PostToolUse') {
+    const input = (p.tool_input ?? {}) as { file_path?: unknown; notebook_path?: unknown }
+    const file = input.file_path ?? input.notebook_path
+    if (typeof file === 'string' && file)
+      host.send('file:touched', { path: path.resolve(String(p.cwd ?? agents.get(nodeId)?.cwd ?? ''), file), by: name(nodeId) })
+    return
+  }
   if (!UUID.test(sessionId)) return
   status.set(nodeId, event === 'UserPromptSubmit' ? 'working' : 'idle')
   if (event === 'SessionStart') {
@@ -341,9 +351,99 @@ const OPEN_SESSION_TOOL = {
   }
 }
 CANVAS_TOOLS.push(OPEN_SESSION_TOOL)
+
+// Optional (Settings), since a session spends tokens on them: each is added to tools/list and to
+// the instructions only while enabled.
+const SNIPPET_TOOL = {
+  name: 'save_snippet',
+  description:
+    'Guarda um comando ou texto curto na lista de "copiar" desta sessão, de onde o usuário copia com um clique (copiar do terminal é difícil). Use para o que ele provavelmente vai precisar colar ou rodar por conta própria: um comando a executar, uma URL, um id, um trecho de configuração. Não use para tudo que você roda.',
+  inputSchema: {
+    type: 'object',
+    properties: { text: { type: 'string', description: 'O texto exato a copiar.' }, label: { type: 'string', description: 'Opcional: para que serve, em poucas palavras.' } },
+    required: ['text']
+  }
+}
+const PIN_FILE_TOOL = {
+  name: 'pin_file',
+  description:
+    'Guarda um arquivo na lista de principais arquivos alterados desta sessão, de onde o usuário abre no canvas com um clique. Use para os arquivos que valem revisão (o coração da mudança), não para cada arquivo tocado.',
+  inputSchema: {
+    type: 'object',
+    properties: { path: { type: 'string', description: 'Caminho absoluto ou relativo ao diretório desta sessão.' }, note: { type: 'string', description: 'Opcional: o que mudou, em poucas palavras.' } },
+    required: ['path']
+  }
+}
+const OPTIONAL_TOOLS = [
+  { tool: SNIPPET_TOOL, on: (s: Settings) => s.sessionSnippets, hint: 'Use save_snippet para deixar à mão do usuário um comando ou texto que ele provavelmente vai copiar.' },
+  { tool: PIN_FILE_TOOL, on: (s: Settings) => s.sessionFiles, hint: 'Use pin_file para listar os principais arquivos que você alterou, ao concluir uma mudança.' }
+]
+
+// Notes and to-do lists the user linked to this session. The canvas owns their content, so every
+// call is answered by the renderer (see elementTools.ts).
+const elementArg = { type: 'string', description: 'Título (ou id) do elemento, como aparece em list_elements.' }
+const ELEMENT_TOOLS = [
+  {
+    name: 'list_elements',
+    description: 'Lista as notas e ToDos que o usuário conectou a esta sessão no canvas. Use só quando o usuário se referir a eles.',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'read_element',
+    description: 'Lê o conteúdo de uma nota ou ToDo conectado a esta sessão. Use só quando o usuário pedir.',
+    inputSchema: { type: 'object', properties: { element: elementArg }, required: ['element'] }
+  },
+  {
+    name: 'write_note',
+    description: 'Escreve numa nota conectada a esta sessão. Por padrão acrescenta ao fim; `replace` troca o texto inteiro. Use só quando o usuário pedir.',
+    inputSchema: {
+      type: 'object',
+      properties: { element: elementArg, text: { type: 'string', description: 'Markdown.' }, mode: { type: 'string', enum: ['append', 'replace'], description: 'Padrão: append.' } },
+      required: ['element', 'text']
+    }
+  },
+  {
+    name: 'update_todo',
+    description: 'Altera um ToDo conectado a esta sessão: acrescenta tarefas e marca ou desmarca as existentes (pelo id ou pelo texto, como em read_element). Use só quando o usuário pedir.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        element: elementArg,
+        add: { type: 'array', items: { type: 'string' }, description: 'Tarefas novas.' },
+        check: { type: 'array', items: { type: 'string' }, description: 'Tarefas a marcar como feitas.' },
+        uncheck: { type: 'array', items: { type: 'string' }, description: 'Tarefas a desmarcar.' }
+      },
+      required: ['element']
+    }
+  }
+]
+const ELEMENT_TOOL_NAMES = new Set(ELEMENT_TOOLS.map((t) => t.name))
+const pendingElements = new Map<string, (r: [string, boolean]) => void>()
+
+/** The renderer's answer to an element tool call. */
+export function elementReply(id: string, text: string, isError: boolean): void {
+  pendingElements.get(id)?.([text, isError])
+  pendingElements.delete(id)
+}
+
+function elementTool(nodeId: string, tool: string, args: Record<string, unknown>): Promise<[string, boolean]> {
+  const me = agents.get(nodeId)
+  if (!me) return Promise.resolve(['Esta sessão não está num canvas aberto.', true])
+  const id = randomUUID()
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => elementReply(id, 'O canvas não respondeu.', true), 5000)
+    pendingElements.set(id, (r) => (clearTimeout(timer), resolve(r)))
+    host.send(`canvas:element:${me.workspaceId}`, { id, from: nodeId, tool, args })
+  })
+}
+
 // open_terminal and open_session are left out: they start processes, so Claude Code asks first.
-const PRE_ALLOWED = ['list_sessions', 'ask_session', 'send_message', 'open_file', 'create_note', 'create_todo']
-const CANVAS_TOOL_NAMES = new Set(CANVAS_TOOLS.map((t) => t.name))
+const PRE_ALLOWED = [
+  'list_sessions', 'ask_session', 'send_message', 'open_file', 'create_note', 'create_todo',
+  ...OPTIONAL_TOOLS.map((o) => o.tool.name),
+  ...ELEMENT_TOOL_NAMES
+]
+const CANVAS_TOOL_NAMES = new Set([...CANVAS_TOOLS, SNIPPET_TOOL, PIN_FILE_TOOL].map((t) => t.name))
 
 type CanvasItem =
   | { type: 'file'; path: string }
@@ -351,6 +451,8 @@ type CanvasItem =
   | { type: 'todo'; title: string; items: string[] }
   | { type: 'terminal'; title: string; cwd?: string; command?: string }
   | { type: 'session'; id: string; title: string; role: string; cwd: string; command: string }
+  | { type: 'snippet'; text: string; label?: string }
+  | { type: 'pin'; path: string; note?: string }
 
 /** Validates a canvas tool call and hands it to the renderer; returns the tool's text reply. */
 async function canvasTool(nodeId: string, tool: string, a: Record<string, unknown>): Promise<[string, boolean]> {
@@ -364,6 +466,18 @@ async function canvasTool(nodeId: string, tool: string, a: Record<string, unknow
     const st = await fs.stat(file).catch(() => null)
     if (!st?.isFile()) return [`Arquivo não encontrado: ${file}`, true]
     item = { type: 'file', path: file }
+  } else if (tool === 'save_snippet') {
+    if (!host.settings().sessionSnippets) return ['O usuário desativou esta ferramenta nas configurações.', true]
+    if (!str(a.text)) return ['Texto vazio.', true]
+    host.send(`canvas:open:${me.workspaceId}`, { from: nodeId, item: { type: 'snippet', text: str(a.text), label: str(a.label) || undefined } })
+    return ['Guardado na lista de copiar desta sessão.', false]
+  } else if (tool === 'pin_file') {
+    if (!host.settings().sessionFiles) return ['O usuário desativou esta ferramenta nas configurações.', true]
+    const file = within(str(a.path))
+    const st = await fs.stat(file).catch(() => null)
+    if (!st?.isFile()) return [`Arquivo não encontrado: ${file}`, true]
+    host.send(`canvas:open:${me.workspaceId}`, { from: nodeId, item: { type: 'pin', path: file, note: str(a.note) || undefined } })
+    return ['Guardado na lista de arquivos desta sessão.', false]
   } else if (tool === 'create_note') {
     if (!str(a.text)) return ['Nota vazia.', true]
     item = { type: 'note', text: str(a.text), title: str(a.title) || undefined }
@@ -432,8 +546,14 @@ async function sameProject(base: string, dir: string): Promise<boolean> {
 
 function instructions(nodeId: string): string {
   const me = agents.get(nodeId)
-  const base = host.settings().agentInstructions.trim() || DEFAULT_AGENT_INSTRUCTIONS
-  return [base, me && `Nesta sessão você é "${me.title}".`, me?.role && `Seu papel: ${me.role}`].filter(Boolean).join('\n\n')
+  const s = host.settings()
+  const base = s.agentInstructions.trim() || DEFAULT_AGENT_INSTRUCTIONS
+  // Apart from the editable text: it follows the settings, and survives custom instructions.
+  const extras = [
+    ...OPTIONAL_TOOLS.filter((o) => o.on(s)).map((o) => o.hint),
+    'O usuário pode conectar notas e ToDos a você. Eles não fazem parte do seu contexto: só use list_elements, read_element, write_note e update_todo quando o usuário pedir.'
+  ]
+  return [base, extras.map((e) => `- ${e}`).join('\n'), me && `Nesta sessão você é "${me.title}".`, me?.role && `Seu papel: ${me.role}`].filter(Boolean).join('\n\n')
 }
 
 function onMcp(nodeId: string, msg: Record<string, unknown>, res: http.ServerResponse): void {
@@ -458,13 +578,20 @@ function onMcp(nodeId: string, msg: Record<string, unknown>, res: http.ServerRes
     })
   }
   if (method === 'ping') return void json({ result: {} })
-  if (method === 'tools/list') return void json({ result: { tools: [...TOOLS, ...CANVAS_TOOLS] } })
+  if (method === 'tools/list') {
+    const optional = OPTIONAL_TOOLS.filter((o) => o.on(host.settings())).map((o) => o.tool)
+    return void json({ result: { tools: [...TOOLS, ...CANVAS_TOOLS, ...optional, ...ELEMENT_TOOLS] } })
+  }
   if (method !== 'tools/call') return void json({ error: { code: -32601, message: `Method not found: ${method}` } })
 
   const args = (params.arguments ?? {}) as { session?: string; message?: string }
   if (params.name === 'list_sessions') return void json(text(listSessions(nodeId)))
   if (CANVAS_TOOL_NAMES.has(String(params.name))) {
     canvasTool(nodeId, String(params.name), args).then(([t, isError]) => json(text(t, isError)))
+    return
+  }
+  if (ELEMENT_TOOL_NAMES.has(String(params.name))) {
+    elementTool(nodeId, String(params.name), args).then(([t, isError]) => json(text(t, isError)))
     return
   }
   if (params.name !== 'ask_session' && params.name !== 'send_message')

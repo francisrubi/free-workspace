@@ -13,6 +13,21 @@ export type Settings = {
   agentInstructions: string
   /** Text box under the selected terminal/session for writing prompts (Enter sends). */
   composer: boolean
+  /**
+   * Reopening a terminal/session (app start, workspace back from stand-by) runs its command.
+   * Off: the command is only typed at the prompt, waiting for Enter. Creating a node and the
+   * "Reiniciar" menu item always run it: those are explicit requests.
+   */
+  autoRestart: boolean
+  /**
+   * Flags open files changed by anything on disk. Off: only changes reported by a Claude
+   * session's edit tools (PostToolUse hook).
+   */
+  watchExternalFiles: boolean
+  /** Offers sessions the save_snippet tool (texts for the user to copy). Costs some AI usage. */
+  sessionSnippets: boolean
+  /** Offers sessions the pin_file tool (main files changed). Costs some AI usage. */
+  sessionFiles: boolean
   /** A workspace moved to the trash is deleted for good after this many days. */
   trashDays: number
   /** Default color per node kind; a node's own `data.color` wins. */
@@ -30,6 +45,10 @@ export const DEFAULT_SETTINGS: Settings = {
   agentInstructions: '',
   trashDays: 7,
   composer: true,
+  autoRestart: true,
+  watchExternalFiles: true,
+  sessionSnippets: true,
+  sessionFiles: true,
   nodeColors: {}
 }
 

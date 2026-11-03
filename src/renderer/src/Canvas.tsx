@@ -28,6 +28,7 @@ import { TodoNode } from './nodes/TodoNode'
 import { MoveDialog } from './MoveDialog'
 import { RoleDialog } from './RoleDialog'
 import { TerminalDialog } from './TerminalDialog'
+import { elementTool } from './elementTools'
 import { copySelection, gitInfo, pasteInto, terminals } from './terminals'
 import { isClaude, uid, type FwNode, type TerminalData, type Workspace } from './types'
 
@@ -35,7 +36,13 @@ const nodeTypes = { terminal: TerminalNode, note: NoteNode, file: FileNode, imag
 const DRAG_HANDLE = '.fw-drag'
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|bmp|svg)$/i
 
-/** `edges` connect Claude sessions that may talk to each other; a connection works both ways. */
+/** A session's saved lists don't grow forever: the oldest entries give way. */
+const MAX_SAVED = 30
+
+/**
+ * `edges` connect Claude sessions that may talk to each other (a connection works both ways) and
+ * sessions to the notes and to-do lists they may access.
+ */
 type Saved = { nodes: FwNode[]; edges?: Edge[]; viewport: Viewport }
 const pairKey = (a: string, b: string) => [a, b].sort().join('|')
 type Point = { x: number; y: number }
@@ -128,11 +135,30 @@ export function Canvas({ workspace, active }: { workspace: Workspace; active: bo
     []
   )
 
-  const canTalk = (id: string) => nodes.some((n) => n.id === id && n.type === 'terminal' && isClaude(n.data))
+  // Tool calls can arrive faster than React renders; each must see the previous one's change, or
+  // two quick update_todo calls would overwrite each other. Writes update this ref right away.
+  const live = useRef({ nodes, edges })
+  live.current = { nodes, edges }
+  useEffect(
+    () =>
+      window.api.agents.onElementRequest(workspaceId, ({ id, from, tool, args }) => {
+        const { text, isError, patch } = elementTool(live.current.nodes, live.current.edges, from, tool, args)
+        if (patch) {
+          const apply = (ns: FwNode[]) => ns.map((n) => (n.id === patch.id ? ({ ...n, data: { ...n.data, ...patch.data } } as FwNode) : n))
+          live.current = { ...live.current, nodes: apply(live.current.nodes) }
+          setNodes(apply)
+        }
+        window.api.agents.elementReply(id, text, !!isError)
+      }),
+    [workspaceId, setNodes]
+  )
+
+  const isSession = (id: string) => nodes.some((n) => n.id === id && n.type === 'terminal' && isClaude(n.data))
+  const isElement = (id: string) => nodes.some((n) => n.id === id && (n.type === 'note' || n.type === 'todo'))
   const isValidConnection = (c: Connection | Edge) =>
     c.source !== c.target &&
-    canTalk(c.source) &&
-    canTalk(c.target) &&
+    // Two sessions, or a session and a note/to-do; never two elements.
+    ((isSession(c.source) && (isSession(c.target) || isElement(c.target))) || (isElement(c.source) && isSession(c.target))) &&
     !edges.some((e) => pairKey(e.source, e.target) === pairKey(c.source, c.target))
   useEffect(() => {
     if (!loaded) return
@@ -261,6 +287,18 @@ export function Canvas({ workspace, active }: { workspace: Workspace; active: bo
   useEffect(
     () =>
       window.api.onCanvasOpen(workspaceId, ({ from, item }) => {
+        if (item.type === 'snippet' || item.type === 'pin') {
+          // Saved again: moves to the top instead of repeating.
+          setNodes((ns) =>
+            ns.map((n) => {
+              if (n.id !== from || n.type !== 'terminal') return n
+              return item.type === 'snippet'
+                ? { ...n, data: { ...n.data, snippets: [{ id: uid(), text: item.text, label: item.label }, ...(n.data.snippets ?? []).filter((s) => s.text !== item.text)].slice(0, MAX_SAVED) } }
+                : { ...n, data: { ...n.data, pinned: [{ path: item.path, note: item.note }, ...(n.data.pinned ?? []).filter((f) => f.path !== item.path)].slice(0, MAX_SAVED) } }
+            })
+          )
+          return
+        }
         if (item.type === 'file') return void openPath(item.path, from)
         if (item.type === 'session') {
           const at = beside(from, 640, 380)
@@ -303,6 +341,8 @@ export function Canvas({ workspace, active }: { workspace: Workspace; active: bo
       // A fresh process and a fresh conversation, not a second view of the same ones.
       data.started = false
       delete data.sessionId
+      delete data.snippets
+      delete data.pinned
     }
     if (typeof data.title === 'string') data.title += ' (cópia)'
     delete data.stack
@@ -578,6 +618,8 @@ export function Canvas({ workspace, active }: { workspace: Workspace; active: bo
       openPath,
       openMenu,
       openLazygit,
+      openTerminal: (cwd: string, command: string, title: string, shell?: string, from?: string) =>
+        add({ type: 'terminal', data: { kind: 'shell', title, cwd, command, shell, runOnce: true }, width: 640, height: 380, position: beside(from, 640, 380) }),
       newTerminal: (kind: TerminalData['kind'], cwd: string) => setDialog({ kind, cwd })
     }),
     // openPath reads nodes through getNodes(), so it doesn't need to change with them.
@@ -606,7 +648,7 @@ export function Canvas({ workspace, active }: { workspace: Workspace; active: bo
           <button onClick={() => add({ type: 'todo', data: { title: 'ToDo', items: [] }, width: 280, height: 260 })}>☑ ToDo</button>
           <button onClick={() => openFiles()}>📄 Arquivo</button>
           <button onClick={() => openExplorer()}>🗂 Explorador</button>
-          <span className="fw-muted fw-hint">Ctrl+V cola print · arraste arquivos · clique direito para opções · ligue os pontos de duas sessões para elas conversarem</span>
+          <span className="fw-muted fw-hint">Ctrl+V cola print · arraste arquivos · clique direito para opções · ligue os pontos de duas sessões para elas conversarem, ou de uma sessão a uma nota ou ToDo</span>
           <ZoomIndicator />
         </div>
         <ReactFlow

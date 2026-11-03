@@ -1,4 +1,4 @@
-import { Handle, Position, useReactFlow, type NodeProps } from '@xyflow/react'
+import { useReactFlow, type NodeProps } from '@xyflow/react'
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
 import { useEffect, useRef, useState } from 'react'
@@ -6,7 +6,8 @@ import { useCanvas, useSettings } from '../context'
 import { copySelection, gitInfo, terminals } from '../terminals'
 import { isClaude, type FwNode, type TerminalData } from '../types'
 import { Composer } from './Composer'
-import { NodeFrame } from './NodeFrame'
+import { ConnectionDots, NodeFrame } from './NodeFrame'
+import { SessionPanel } from './SessionPanel'
 import type { GitInfo } from '../../../preload'
 
 type Props = NodeProps<Extract<FwNode, { type: 'terminal' }>>
@@ -15,7 +16,10 @@ export function TerminalNode({ id, data, selected }: Props) {
   const el = useRef<HTMLDivElement>(null)
   const { updateNodeData } = useReactFlow()
   const { workspaceId } = useCanvas()
-  const { composer } = useSettings()
+  const { composer, autoRestart } = useSettings()
+  const autoRestartRef = useRef(autoRestart)
+  autoRestartRef.current = autoRestart
+  const [showPanel, setShowPanel] = useState(false)
   const [generation, setGeneration] = useState(0)
   const [status, setStatus] = useState<'working' | 'idle'>()
   const [git, setGit] = useState<GitInfo | null>(null)
@@ -65,9 +69,11 @@ export function TerminalNode({ id, data, selected }: Props) {
     // has no id yet, so it falls back once to its old `claude --continue`.
     const claude = isClaude(d)
     const reopening = d.kind === 'ai' && d.started
-    const command = reopening && (!claude || !d.sessionId) && d.resumeCommand ? d.resumeCommand : d.command
+    const command = d.runOnce && d.started && generation === 0 ? undefined : reopening && (!claude || !d.sessionId) && d.resumeCommand ? d.resumeCommand : d.command
+    // Only a reopening waits for Enter: creating the node or "Reiniciar" (generation > 0) ask to run.
+    const hold = !!d.started && generation === 0 && !autoRestartRef.current
     window.api.pty
-      .open({ id, workspaceId, cwd: d.cwd, command, claude: claude ? { sessionId: d.sessionId } : undefined, cols: term.cols, rows: term.rows })
+      .open({ id, workspaceId, cwd: d.cwd, command, hold, shell: d.shell, claude: claude ? { sessionId: d.sessionId } : undefined, cols: term.cols, rows: term.rows })
       .then(({ replay }) => {
         if (replay) {
           term.write(replay)
@@ -79,6 +85,8 @@ export function TerminalNode({ id, data, selected }: Props) {
         }
         if (!d.started) updateNodeData(id, { started: true })
       })
+      // A per-node shell may have been uninstalled since, or never existed on this machine.
+      .catch((e: Error) => term.write(`\x1b[31mNão foi possível abrir ${d.shell || 'o shell'}: ${e.message}\x1b[0m\r\n`))
     const inSub = term.onData((s) => window.api.pty.write(id, s))
     const rsSub = term.onResize(({ cols, rows }) => window.api.pty.resize(id, cols, rows))
     const ro = new ResizeObserver(() => safeFit(fit, el.current!))
@@ -139,17 +147,12 @@ export function TerminalNode({ id, data, selected }: Props) {
   }, [id, data.cwd])
 
   const where = git ? `⎇ ${git.branch}${git.worktree ? ' (worktree)' : ''}` : undefined
+  const saved = (data.snippets?.length ?? 0) + (data.pinned?.length ?? 0)
 
   return (
     <>
-      {/* Drag from one session's dot to another's to let them talk (see main/agents.ts).
-          Outside NodeFrame, whose overflow:hidden would clip them. */}
-      {isClaude(data) && (
-        <>
-          <Handle id="l" type="source" position={Position.Left} className="fw-handle" title="Arraste até outra sessão para conectá-las" />
-          <Handle id="r" type="source" position={Position.Right} className="fw-handle" title="Arraste até outra sessão para conectá-las" />
-        </>
-      )}
+      {/* Drag to another session to let them talk, or to a note/to-do to give access to it (see main/agents.ts). */}
+      {isClaude(data) && <ConnectionDots title="Arraste até outra sessão, uma nota ou um ToDo para conectar" />}
     <NodeFrame
       id={id}
       selected={selected}
@@ -157,10 +160,18 @@ export function TerminalNode({ id, data, selected }: Props) {
       status={status}
       title={data.title}
       subtitle={[data.role, where, data.cwd].filter(Boolean).join(' · ') || undefined}
+      actions={
+        saved > 0 && (
+          <button className="fw-panel-toggle" title="Comandos e arquivos guardados pela sessão" onClick={() => setShowPanel((s) => !s)}>
+            ☰ {saved}
+          </button>
+        )
+      }
       minWidth={320}
       minHeight={160}
     >
       <div className="fw-terminal" ref={el} />
+      {showPanel && saved > 0 && <SessionPanel id={id} data={data} />}
     </NodeFrame>
       {composer && <Composer nodeId={id} visible={!!selected} />}
     </>

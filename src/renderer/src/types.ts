@@ -21,6 +21,17 @@ export type TerminalData = {
   /** Last Claude conversation used in this terminal, reported by its hooks. */
   sessionId?: string
   started?: boolean
+  /** Executable to run this terminal in; absent means the shell from Settings. */
+  shell?: string
+  /**
+   * A command run from a button (package.json script, script file). Unlike `command` in general,
+   * reopening the app must not repeat it: it could be a deploy. "Reiniciar" still does, on request.
+   */
+  runOnce?: boolean
+  /** Texts the session left for the user to copy (MCP `save_snippet`), newest first. */
+  snippets?: { id: string; text: string; label?: string }[]
+  /** Main files the session changed (MCP `pin_file`), newest first. */
+  pinned?: { path: string; note?: string }[]
   /** Overrides the kind's default color (Settings). Same field on every node type. */
   color?: string
 }

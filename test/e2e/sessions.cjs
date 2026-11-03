@@ -55,7 +55,7 @@ module.exports = async (win) => {
   check('MCP initialize devolve instruções com nome e papel da sessão',
     init.protocolVersion === '2025-06-18' && init.instructions.includes('Free Workspace') && init.instructions.includes('"Claude"') && init.instructions.includes('papel do front'))
   const tools = (await t.mcp(AI, 'tools/list')).result.tools.map((x) => x.name).join(',')
-  check('MCP lista as ferramentas', tools === 'list_sessions,ask_session,send_message,open_file,create_note,create_todo,open_terminal,open_session', tools)
+  check('MCP lista as ferramentas', tools === 'list_sessions,ask_session,send_message,open_file,create_note,create_todo,open_terminal,open_session,save_snippet,pin_file,list_elements,read_element,write_note,update_todo', tools)
   const listed = (await call(AI, 'list_sessions')).content[0].text
   check('list_sessions mostra só a sessão conectada, com o papel', listed.includes('"Backend"') && listed.includes('cuida da API') && !listed.includes('Revisor'), listed)
   check('sessão sem conexões não enxerga ninguém', (await call(C, 'list_sessions')).content[0].text.includes('Nenhuma sessão conectada'))

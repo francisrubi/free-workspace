@@ -16,6 +16,8 @@ export function TerminalDialog({ kind, defaultCwd, onCancel, onCreate }: Props) 
   const [provider, setProvider] = useState<'claude' | 'custom'>('claude')
   const [command, setCommand] = useState(ai ? 'claude' : '')
   const [resumeCommand, setResumeCommand] = useState('')
+  const [shell, setShell] = useState('')
+  const [shells, setShells] = useState<{ label: string; path: string }[]>([])
   const [worktree, setWorktree] = useState(false)
   const [branch, setBranch] = useState('')
   const [base, setBase] = useState('')
@@ -26,7 +28,14 @@ export function TerminalDialog({ kind, defaultCwd, onCancel, onCreate }: Props) 
 
   useEffect(() => {
     window.api.homedir().then((h) => setCwd((c) => c || h))
+    window.api.shells().then(setShells)
   }, [])
+
+  // Claude's hook and MCP config files are passed as Windows paths, which WSL can't open.
+  const usableShells = provider === 'claude' && ai ? shells.filter((s) => s.path !== 'wsl.exe') : shells
+  useEffect(() => {
+    if (shell && shells.length && !usableShells.some((s) => s.path === shell)) setShell('')
+  }, [provider, shells])
 
   // Branches of the chosen repo, for the "start from" field; the current one is the default.
   const loadBranches = async (fetch = false) => {
@@ -76,6 +85,7 @@ export function TerminalDialog({ kind, defaultCwd, onCancel, onCreate }: Props) 
       title: worktree && (title === 'Claude' || title === 'Terminal' || title === 'Sessão IA') ? branch.trim() : title,
       cwd: dir,
       command: command || undefined,
+      shell: shell || undefined,
       ...(ai ? { provider, resumeCommand: provider === 'custom' ? resumeCommand || undefined : undefined } : {})
     })
   }
@@ -105,6 +115,17 @@ export function TerminalDialog({ kind, defaultCwd, onCancel, onCreate }: Props) 
               …
             </button>
           </span>
+        </label>
+        <label>
+          Tipo de terminal
+          <select value={shell} onChange={(e) => setShell(e.target.value)}>
+            <option value="">Padrão (das configurações)</option>
+            {usableShells.map((s) => (
+              <option key={s.path} value={s.path}>
+                {s.label}
+              </option>
+            ))}
+          </select>
         </label>
         <label className="fw-check">
           <input type="checkbox" checked={worktree} onChange={(e) => setWorktree(e.target.checked)} />

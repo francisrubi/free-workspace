@@ -6,7 +6,7 @@ import { marked } from 'marked'
 import { useMemo, useState } from 'react'
 import type { FwNode } from '../types'
 import { editorTheme } from './editor'
-import { NodeFrame } from './NodeFrame'
+import { ConnectionDots, NodeFrame } from './NodeFrame'
 
 type Props = NodeProps<Extract<FwNode, { type: 'note' }>>
 
@@ -20,26 +20,29 @@ export function NoteNode({ id, data, selected }: Props) {
   const firstLine = data.text.split('\n')[0].replace(/^#+\s*/, '').slice(0, 60) || 'Nota'
 
   return (
-    <NodeFrame
-      id={id}
-      selected={selected}
-      icon="✎"
-      title={data.title || firstLine}
-      actions={<button onClick={() => setEditing(!editing)}>{editing ? 'ver' : 'editar'}</button>}
-    >
-      {editing ? (
-        <CodeMirror
-          className="fw-editor"
-          value={data.text}
-          autoFocus
-          theme="none"
-          basicSetup={{ lineNumbers: false, foldGutter: false }}
-          extensions={mdExtensions}
-          onChange={(text) => updateNodeData(id, { text })}
-        />
-      ) : (
-        <div className="fw-markdown" onDoubleClick={() => setEditing(true)} dangerouslySetInnerHTML={{ __html: html }} />
-      )}
-    </NodeFrame>
+    <>
+      <ConnectionDots title="Arraste até uma sessão para ela poder ler e escrever nesta nota" />
+      <NodeFrame
+        id={id}
+        selected={selected}
+        icon="✎"
+        title={data.title || firstLine}
+        actions={<button onClick={() => setEditing(!editing)}>{editing ? 'ver' : 'editar'}</button>}
+      >
+        {editing ? (
+          <CodeMirror
+            className="fw-editor"
+            value={data.text}
+            autoFocus
+            theme="none"
+            basicSetup={{ lineNumbers: false, foldGutter: false }}
+            extensions={mdExtensions}
+            onChange={(text) => updateNodeData(id, { text })}
+          />
+        ) : (
+          <div className="fw-markdown" onDoubleClick={() => setEditing(true)} dangerouslySetInnerHTML={{ __html: html }} />
+        )}
+      </NodeFrame>
+    </>
   )
 }

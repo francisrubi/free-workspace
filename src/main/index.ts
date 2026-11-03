@@ -8,7 +8,7 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import * as pty from '@lydell/node-pty'
 import { DEFAULT_SETTINGS, EMPTY_LAYOUT, type Settings, type SidebarLayout } from '../shared/settings'
-import { claudeArgs, startAgentServer, syncAgents, type AgentInfo } from './agents'
+import { claudeArgs, elementReply, startAgentServer, syncAgents, type AgentInfo } from './agents'
 
 // Workspaces live in plain folders (canvas.json + assets/) so they stay readable and
 // versionable without the app — same idea as an Obsidian vault.
@@ -215,6 +215,38 @@ ipcMain.handle('ws:copyAsset', async (_e, src: string, toWorkspace: string) => {
   return `fwasset://${toWorkspace}/${name}`
 })
 ipcMain.handle('file:write', (_e, p: string, content: string) => tracked(fs.writeFile(p, content, 'utf8')))
+/** Null when the file is gone. */
+ipcMain.handle('file:stat', (_e, p: string) => fs.stat(p).then((s) => ({ mtimeMs: s.mtimeMs, size: s.size }), () => null))
+
+// ---------- .http files ----------
+
+const MAX_HTTP_BODY = 2 * 1024 * 1024
+/**
+ * Sends a request from a .http file. Here and not in the renderer because a page is subject to
+ * CORS and can't set many headers; Node's fetch also keeps no cookies or cache between requests.
+ */
+ipcMain.handle('http:send', async (_e, req: { method: string; url: string; headers: [string, string][]; body?: string }) => {
+  const started = Date.now()
+  try {
+    // fetch computes the length itself and fails if a hand-written one doesn't match.
+    const headers = req.headers.filter(([k]) => k.toLowerCase() !== 'content-length')
+    const res = await fetch(req.url, { method: req.method, headers, body: req.body || undefined, signal: AbortSignal.timeout(60_000) })
+    const bytes = Buffer.from(await res.arrayBuffer())
+    const type = res.headers.get('content-type') ?? ''
+    const binary = bytes.subarray(0, 8000).includes(0) || /^(image|audio|video|font)\/|octet-stream|zip|pdf/.test(type)
+    return {
+      status: res.status,
+      statusText: res.statusText,
+      headers: [...res.headers.entries()],
+      body: binary ? `(conteúdo binário, ${bytes.length} bytes)` : bytes.subarray(0, MAX_HTTP_BODY).toString('utf8'),
+      truncated: !binary && bytes.length > MAX_HTTP_BODY,
+      ms: Date.now() - started
+    }
+  } catch (e) {
+    const err = e as Error & { cause?: { message?: string } }
+    return { error: err.name === 'TimeoutError' ? 'Sem resposta em 60 s.' : err.cause?.message || err.message, ms: Date.now() - started }
+  }
+})
 ipcMain.handle('file:rename', async (_e, from: string, to: string) => {
   // fs.rename silently replaces an existing target on Windows; refuse instead.
   if (await fs.stat(to).then(() => true, () => false)) throw new Error(`Já existe: ${to}`)
@@ -223,6 +255,15 @@ ipcMain.handle('file:rename', async (_e, from: string, to: string) => {
 ipcMain.handle('shell:showInFolder', (_e, p: string) => shell.showItemInFolder(p))
 ipcMain.handle('shell:openInEditor', (_e, p: string) => {
   spawn('code', [p], { shell: true, detached: true, stdio: 'ignore' }).unref()
+})
+// openExternal runs whatever handles the target, so each of these only takes the one kind it's for.
+ipcMain.handle('shell:openInBrowser', async (_e, p: string) => {
+  if (!/\.(html?|svg)$/i.test(p)) throw new Error(`Não é uma página: ${p}`)
+  await shell.openExternal(pathToFileURL(p).toString())
+})
+ipcMain.handle('shell:openUrl', async (_e, url: string) => {
+  if (!/^https?:\/\//i.test(url)) throw new Error(`Link não permitido: ${url}`)
+  await shell.openExternal(url)
 })
 ipcMain.handle('clipboard:writeText', (_e, text: string) => clipboard.writeText(text))
 ipcMain.handle('clipboard:readText', () => clipboard.readText())
@@ -343,6 +384,39 @@ function defaultShell(): string {
   return process.platform === 'win32' ? 'powershell.exe' : process.env.SHELL || '/bin/bash'
 }
 
+/** Shells to offer when opening a terminal: what's installed, by display name. */
+async function availableShells(): Promise<{ label: string; path: string }[]> {
+  const found = (name: string) =>
+    run(process.platform === 'win32' ? 'where' : 'which', [name], { windowsHide: true }).then(
+      ({ stdout }) => stdout.split(/\r?\n/)[0].trim() || null,
+      () => null
+    )
+  if (process.platform !== 'win32') {
+    const names = ['bash', 'zsh', 'fish', 'sh']
+    const paths = await Promise.all(names.map(found))
+    return names.flatMap((label, i) => (paths[i] ? [{ label, path: paths[i]! }] : []))
+  }
+  const [pwsh, wsl, gitExe] = await Promise.all([found('pwsh.exe'), found('wsl.exe'), found('git.exe')])
+  // Not `where bash`: that usually finds System32\bash.exe, which is WSL's launcher.
+  const roots = [gitExe && path.dirname(path.dirname(gitExe)), 'C:\\Program Files\\Git'].filter((r): r is string => !!r)
+  let gitBash: string | null = null
+  for (const root of roots) {
+    const candidate = path.join(root, 'bin', 'bash.exe')
+    if (await fs.stat(candidate).then(() => true, () => false)) {
+      gitBash = candidate
+      break
+    }
+  }
+  return [
+    { label: 'PowerShell', path: 'powershell.exe' },
+    ...(pwsh ? [{ label: 'PowerShell 7', path: 'pwsh.exe' }] : []),
+    { label: 'Prompt de Comando (cmd)', path: 'cmd.exe' },
+    ...(gitBash ? [{ label: 'Git Bash', path: gitBash }] : []),
+    ...(wsl ? [{ label: 'WSL', path: 'wsl.exe' }] : [])
+  ]
+}
+ipcMain.handle('app:shells', availableShells)
+
 function kill(id: string): void {
   const s = sessions.get(id)
   if (s && !s.exited) s.proc.kill()
@@ -353,12 +427,23 @@ ipcMain.handle(
   'pty:open',
   async (
     _e,
-    opts: { id: string; workspaceId: string; cwd?: string; command?: string; claude?: { sessionId?: string }; cols: number; rows: number }
+    opts: {
+      id: string
+      workspaceId: string
+      cwd?: string
+      command?: string
+      /** Type the command at the prompt but leave it for the user to send. */
+      hold?: boolean
+      shell?: string
+      claude?: { sessionId?: string }
+      cols: number
+      rows: number
+    }
   ) => {
     const existing = sessions.get(opts.id)
     if (existing && !existing.exited) return { replay: existing.buffer }
 
-    const proc = pty.spawn(defaultShell(), [], {
+    const proc = pty.spawn(opts.shell || defaultShell(), [], {
       name: 'xterm-256color',
       cols: opts.cols,
       rows: opts.rows,
@@ -378,7 +463,7 @@ ipcMain.handle(
       if (current()) toRenderer(`pty:exit:${opts.id}`, exitCode)
     })
     const command = opts.command && opts.claude ? opts.command + (await claudeArgs(opts.id, opts.claude.sessionId)) : opts.command
-    if (command && current()) proc.write(command + '\r')
+    if (command && current()) proc.write(opts.hold ? command : command + '\r')
     return { replay: '' }
   }
 )
@@ -389,6 +474,7 @@ ipcMain.on('pty:resize', (_e, id: string, cols: number, rows: number) => {
 })
 ipcMain.on('pty:kill', (_e, id: string) => kill(id))
 ipcMain.on('agents:sync', (_e, workspaceId: string, list: AgentInfo[]) => syncAgents(workspaceId, list))
+ipcMain.on('agents:elementReply', (_e, id: string, text: string, isError: boolean) => elementReply(id, text, isError))
 // Putting a workspace back on stand-by ends its terminals; AI sessions resume on next open.
 ipcMain.on('pty:killWorkspace', (_e, workspaceId: string) => {
   for (const [id, s] of sessions) if (s.workspaceId === workspaceId) kill(id)

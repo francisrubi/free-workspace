@@ -24,6 +24,8 @@ export type CanvasState = {
   openMenu: (e: MenuEvent, items: MenuItem[]) => void
   /** Opens lazygit in `cwd` beside node `from` (or explains how to install it). */
   openLazygit: (cwd: string, from?: string) => void
+  /** Runs a one-off command in a new terminal beside node `from`. It doesn't run again on reopening. */
+  openTerminal: (cwd: string, command: string, title: string, shell?: string, from?: string) => void
 }
 export const CanvasContext = createContext<CanvasState>({
   workspaceId: '',
@@ -32,7 +34,8 @@ export const CanvasContext = createContext<CanvasState>({
   openPath: () => {},
   newTerminal: () => {},
   openMenu: () => {},
-  openLazygit: () => {}
+  openLazygit: () => {},
+  openTerminal: () => {}
 })
 export const useCanvas = () => useContext(CanvasContext)
 
